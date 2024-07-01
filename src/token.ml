@@ -1,36 +1,98 @@
 open! Core
 
 type t =
-    | Int of int
-    | Bool of bool
-    | Float of float
-    | Left_paren
-    | Right_paren
-    | Not
-    | Plus
-    | Minus
-    | Asterisk
-    | Slash
-    | Plus_dot
-    | Minus_dot
-    | Asterisk_dot
-    | Slash_dot
-    | Equal
-    | Less_greater
-    | Less_equal
-    | Greater_equal
-    | Less
-    | Greater
-    | If
-    | Then
-    | Else
-    | Let
-    | In
-    | Rec
-    | Coma
-    | Dot
-    | Less_minus
-    | Semicolon
-    | Ident of string
-    | Eof
+  (* Literals *)
+  | Int of int
+  | Bool of bool
+  | Float of float
+  | String of string
+  | Ident of string
+  (* Symbols *)
+  | Left_paren
+  | Right_paren
+  | Plus
+  | Plus_dot
+  | Minus
+  | Minus_dot
+  | Minus_greater
+  | Asterisk
+  | Asterisk_dot
+  | Slash
+  | Slash_dot
+  | Equal
+  | Less
+  | Less_greater
+  | Less_equal
+  | Less_minus
+  | Greater
+  | Greater_equal
+  | Comma
+  | Dot
+  | Quote
+  | Colon
+  | Semicolon
+  (* Keywords *)
+  | Not
+  | If
+  | Then
+  | Else
+  | Let
+  | In
+  | Rec
+  | Fun
+  | Eof
 [@@deriving sexp_of, compare, equal]
+
+let to_string = function
+  | Int int -> Int.to_string int
+  | Bool bool -> Bool.to_string bool
+  | Float float -> Float.to_string float
+  | Ident ident -> ident
+  | String string -> [%string {|"%{string}"|}]
+  | Left_paren -> "("
+  | Right_paren -> ")"
+  | Plus -> "+"
+  | Plus_dot -> "+."
+  | Minus -> "-"
+  | Minus_dot -> "-."
+  | Minus_greater -> "->"
+  | Asterisk -> "*"
+  | Asterisk_dot -> "*."
+  | Slash -> "/"
+  | Slash_dot -> "/."
+  | Equal -> "="
+  | Less -> "<"
+  | Less_greater -> "<>"
+  | Less_equal -> "<="
+  | Less_minus -> "<-"
+  | Greater -> ">"
+  | Greater_equal -> ">="
+  | Comma -> ","
+  | Dot -> "."
+  | Quote -> "'"
+  | Colon -> ":"
+  | Semicolon -> ";"
+  | Not -> "not"
+  | If -> "if"
+  | Then -> "then"
+  | Else -> "else"
+  | Let -> "let"
+  | In -> "in"
+  | Rec -> "rec"
+  | Fun -> "fun"
+  | Eof -> ""
+;;
+
+let length = Fn.compose String.length to_string
+
+module With_position = struct
+  type token = t [@@deriving sexp_of, compare, equal]
+
+  type t =
+    { token : token
+    ; position : Position.t
+    }
+  [@@deriving sexp_of, compare, equal, fields ~getters ~iterators:create]
+
+  let create = Fields.create
+end

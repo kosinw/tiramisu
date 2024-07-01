@@ -1,7 +1,7 @@
 (library
- (name miniml)
+ (name tiramisu)
  (libraries core)
- (modules token)
+ (modules (:standard \ main))
  (inline_tests)
  (preprocess
   (pps ppx_jane ppx_expect)))
@@ -9,6 +9,6 @@
 (executable
  (name main)
  (modules main)
- (libraries core miniml)
+ (libraries tiramisu)
  (preprocess
   (pps ppx_jane)))

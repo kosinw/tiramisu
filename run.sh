@@ -1,3 +1,3 @@
 #!/bin/bash
 
-dune exec src/main.exe -- $1
+_build/default/src/main.exe $1
