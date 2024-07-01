@@ -1,0 +1,14 @@
+(library
+ (name miniml)
+ (libraries core)
+ (modules token)
+ (inline_tests)
+ (preprocess
+  (pps ppx_jane ppx_expect)))
+
+(executable
+ (name main)
+ (modules main)
+ (libraries core miniml)
+ (preprocess
+  (pps ppx_jane)))
