@@ -82,6 +82,7 @@ let rec token t =
   | Some '/' -> with_slash (advance_char t)
   | Some '<' -> with_less (advance_char t)
   | Some '>' -> with_greater (advance_char t)
+  | Some '"' -> with_quote [] (advance_char t)
   | Some x ->
     (match Char.is_whitespace x with
      | true -> token (skip_whitespace t)
@@ -172,6 +173,26 @@ and comment n t =
      | _ -> comment n (advance_char t))
   | Some _ -> comment n (advance_char t)
   | None -> Or_error.error_string "Comment not terminated", t
+
+and with_quote l t =
+  match peek_char t with
+  | Some '"' -> Ok (Token.String (String.of_char_list (List.rev l))), advance_char t
+  | Some '\\' ->
+    let t = advance_char t in
+    (match peek_char t with
+     | Some '\\' -> with_quote ('\\' :: l) (advance_char t)
+     | Some '"' -> with_quote ('"' :: l) (advance_char t)
+     | Some '\'' -> with_quote ('\'' :: l) (advance_char t)
+     | Some 'n' -> with_quote ('\n' :: l) (advance_char t)
+     | Some 'r' -> with_quote ('\r' :: l) (advance_char t)
+     | Some 't' -> with_quote ('\t' :: l) (advance_char t)
+     | Some 'b' -> with_quote ('\b' :: l) (advance_char t)
+     | Some ' ' -> with_quote (' ' :: l) (advance_char t)
+     | Some x ->
+       Or_error.error_string [%string "String escape sequence unknown, \\%{x#Char}"], t
+     | None -> Or_error.error_string "String escape sequence not terminated", t)
+  | Some c -> with_quote (c :: l) (advance_char t)
+  | None -> Or_error.error_string "String literal not terminated", t
 ;;
 
 let token_with_position t =
@@ -291,5 +312,16 @@ let%expect_test "should work with weird tokens" =
     (tokens
      (Let (Ident x) Equal (Float 3.4) Plus_dot (Float 5) In Let (Ident y) Equal
       Minus (Int 3) Plus (Int 4) In Minus (Ident z)))
+    |}]
+;;
+
+let%expect_test "should work with parsing string literals" =
+  let lexer = from_string {| "\\hello" "hello" "hell\"o" "joebiden" |} in
+  let tokens = token_all lexer in
+  print_s [%message (tokens : Token.t list)];
+  [%expect
+    {|
+    (tokens
+     ((String "\\hello") (String hello) (String "hell\"o") (String joebiden)))
     |}]
 ;;
