@@ -9,6 +9,7 @@
 (executable
  (name main)
  (modules main)
- (libraries tiramisu)
+ (public_name tiramisu)
+ (libraries core_unix.command_unix core_unix.filename_unix tiramisu)
  (preprocess
   (pps ppx_jane)))

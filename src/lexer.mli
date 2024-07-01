@@ -2,6 +2,7 @@ open! Core
 
 type t
 
+val from_stdin : unit -> t
 val from_string : ?filename:string -> string -> t
 val from_file : filename:string -> t
 val to_position : t -> Position.t

@@ -18,6 +18,10 @@ let from_string ?filename contents =
   }
 ;;
 
+let from_stdin () =
+  In_channel.stdin |> In_channel.input_all |> from_string ~filename:"[stdin]"
+;;
+
 let from_file ~filename =
   filename |> In_channel.create |> In_channel.input_all |> from_string ~filename
 ;;
@@ -57,9 +61,10 @@ let consume_string t =
   let rec consume_string' l t =
     match peek_char t with
     | Some c ->
-      (match Char.is_whitespace c with
-       | false -> consume_string' (c :: l) (advance_char t)
-       | true -> t, l)
+      (match c with
+       | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '\'' ->
+         consume_string' (c :: l) (advance_char t)
+       | _ -> t, l)
     | None -> t, l
   in
   let t, l = consume_string' [] t in
@@ -310,8 +315,8 @@ let%expect_test "should work with weird tokens" =
   [%expect
     {|
     (tokens
-     (Let (Ident x) Equal (Float 3.4) Plus_dot (Float 5) In Let (Ident y) Equal
-      Minus (Int 3) Plus (Int 4) In Minus (Ident z)))
+     (Let (Ident x) Equal (Int 3) Dot (Int 4) Plus_dot (Int 5) Dot In Let
+      (Ident y) Equal Minus (Int 3) Plus (Int 4) In Minus (Ident z)))
     |}]
 ;;
 
@@ -324,4 +329,11 @@ let%expect_test "should work with parsing string literals" =
     (tokens
      ((String "\\hello") (String hello) (String "hell\"o") (String joebiden)))
     |}]
+;;
+
+let%expect_test "testing Array.create" =
+  let lexer = from_string {| Array.create |} in
+  let tokens = token_all lexer in
+  print_s [%message (tokens : Token.t list)];
+  [%expect {| (tokens ((Ident Array) Dot (Ident create))) |}]
 ;;

@@ -1,0 +1,2 @@
+let half = fun y -> y /. 2. in
+half (half (half 16))

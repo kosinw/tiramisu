@@ -1,3 +1,3 @@
 #!/bin/bash
 
-_build/default/src/main.exe $1
+_build/default/src/main.exe $@
