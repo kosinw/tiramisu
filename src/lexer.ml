@@ -11,6 +11,9 @@ type t =
 
 module Result = struct
   type t = Token.t Or_error.t * Position.t [@@deriving sexp_of, compare, equal]
+
+  let token = Fn.compose Or_error.ok fst
+  let position = snd
 end
 
 let from_string ?filename contents =
@@ -228,33 +231,33 @@ and with_quote l t =
   | None -> Or_error.error_string "String literal not terminated", t
 ;;
 
-let token_with_position t =
+let current t =
   let t = skip_whitespace t in
   let position = to_position t in
   match token t with
-  | Ok token, t -> Ok token, position, t
-  | Error err, t -> Error err, position, t
+  | Ok token, t -> (Ok token, position), t
+  | Error err, t -> (Error err, position), t
 ;;
 
 let all t =
   let rec all' l t =
-    match token_with_position t with
-    | Ok token, position, t ->
+    match current t with
+    | (Ok token, position), t ->
       (match token with
        | Token.Eof -> List.rev l
        | _ -> all' ((Ok token, position) :: l) t)
-    | Error e, position, _ -> List.rev ((Error e, position) :: l)
+    | (Error e, position), _ -> List.rev ((Error e, position) :: l)
   in
   all' [] t
 ;;
 
-let current t =
-  let token, position, _ = token_with_position t in
-  token, position
+let peek t =
+  let result, _ = current t in
+  result
 ;;
 
 let advance t =
-  let _, _, t = token_with_position t in
+  let _, t = current t in
   t
 ;;
 
