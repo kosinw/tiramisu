@@ -9,13 +9,15 @@ let lexer =
        anon (maybe_with_default "-" ("filename" %: Filename_unix.arg_type))
      in
      fun () ->
-       let lexer =
+       let channel =
          if String.equal filename "-"
-         then Lexer.from_stdin ()
-         else Lexer.from_file ~filename
+         then In_channel.stdin
+         else In_channel.create filename
        in
-       let tokens = Lexer.token_all lexer in
-       print_s [%message (tokens : Token.t list)])
+       let lexer = Lexer.from_channel ~filename channel in
+       let tokens = Lexer.all lexer in
+       print_s [%message (tokens : Token.With_position.t Or_error.t list)];
+       In_channel.close channel)
 ;;
 
 let group = Command.group ~summary:"The Tiramisu compiler" [ "lexer", lexer ]

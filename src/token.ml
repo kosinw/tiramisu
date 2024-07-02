@@ -2,9 +2,9 @@ open! Core
 
 type t =
   (* Literals *)
-  | Int of int
+  | Int of string
   | Bool of bool
-  | Float of float
+  | Float of string
   | String of string
   | Ident of string
   (* Symbols *)
@@ -44,9 +44,9 @@ type t =
 [@@deriving sexp_of, compare, equal]
 
 let to_string = function
-  | Int int -> Int.to_string int
+  | Int s -> s
   | Bool bool -> Bool.to_string bool
-  | Float float -> Float.to_string float
+  | Float s -> s
   | Ident ident -> ident
   | String string -> [%string {|"%{string}"|}]
   | Left_paren -> "("
