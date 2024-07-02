@@ -28,5 +28,5 @@ let readme () =
 let () =
   Command_unix.run
     ~version:"1.0"
-    (Command.group ~summary:"Tiramisu" [ "lex", lex ] ~readme)
+    (Command.group ~summary:"" [ "lex", lex ] ~readme)
 ;;

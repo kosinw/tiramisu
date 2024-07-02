@@ -17,7 +17,7 @@ module Result = struct
 end
 
 let from_string ?filename contents =
-  { filename = Option.value ~default:"[anon]" filename
+  { filename = Option.value ~default:"-" filename
   ; contents
   ; abs_pos = 0
   ; abs_lnum = 0
@@ -92,8 +92,8 @@ let rec token t =
   | Some '.' -> Ok Token.Dot, advance_char t
   | Some '\'' -> Ok Token.Quote, advance_char t
   | Some ':' -> Ok Token.Colon, advance_char t
-  | Some ';' -> Ok Token.Semicolon, advance_char t
   | Some ',' -> Ok Token.Comma, advance_char t
+  | Some ';' -> Ok Token.Semicolon, advance_char t
   | Some '(' -> with_left_paren (advance_char t)
   | Some '+' -> with_plus (advance_char t)
   | Some '-' -> with_minus (advance_char t)
@@ -268,11 +268,11 @@ let%expect_test "should work with basic program" =
   [%expect
     {|
     (tokens
-     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
-      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 6)))
-      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 12)))
-      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 14)))
-      ((Ok In) ((filename [anon]) (line_number 1) (column_number 16)))))
+     (((Ok Let) ((filename -) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename -) (line_number 1) (column_number 6)))
+      ((Ok Equal) ((filename -) (line_number 1) (column_number 12)))
+      ((Ok (Int 3)) ((filename -) (line_number 1) (column_number 14)))
+      ((Ok In) ((filename -) (line_number 1) (column_number 16)))))
     |}]
 ;;
 
@@ -283,11 +283,11 @@ let%expect_test "should work with positions" =
   [%expect
     {|
     (tokens
-     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
-      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 6)))
-      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 12)))
-      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 14)))
-      ((Ok In) ((filename [anon]) (line_number 1) (column_number 16)))))
+     (((Ok Let) ((filename -) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename -) (line_number 1) (column_number 6)))
+      ((Ok Equal) ((filename -) (line_number 1) (column_number 12)))
+      ((Ok (Int 3)) ((filename -) (line_number 1) (column_number 14)))
+      ((Ok In) ((filename -) (line_number 1) (column_number 16)))))
     |}]
 ;;
 
@@ -298,11 +298,11 @@ let%expect_test "should work with comments" =
   [%expect
     {|
     (tokens
-     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
-      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 30)))
-      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 36)))
-      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 38)))
-      ((Ok In) ((filename [anon]) (line_number 1) (column_number 40)))))
+     (((Ok Let) ((filename -) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename -) (line_number 1) (column_number 30)))
+      ((Ok Equal) ((filename -) (line_number 1) (column_number 36)))
+      ((Ok (Int 3)) ((filename -) (line_number 1) (column_number 38)))
+      ((Ok In) ((filename -) (line_number 1) (column_number 40)))))
     |}]
 ;;
 
@@ -316,11 +316,11 @@ let%expect_test "should work with nested comments" =
   [%expect
     {|
     (tokens
-     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
-      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 67)))
-      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 73)))
-      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 75)))
-      ((Ok In) ((filename [anon]) (line_number 1) (column_number 77)))))
+     (((Ok Let) ((filename -) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename -) (line_number 1) (column_number 67)))
+      ((Ok Equal) ((filename -) (line_number 1) (column_number 73)))
+      ((Ok (Int 3)) ((filename -) (line_number 1) (column_number 75)))
+      ((Ok In) ((filename -) (line_number 1) (column_number 77)))))
     |}]
 ;;
 
@@ -346,7 +346,7 @@ let%expect_test "should throw error with unterminated comments" =
     {|
     (tokens
      (((Error "Comment not terminated")
-       ((filename [anon]) (line_number 1) (column_number 2)))))
+       ((filename -) (line_number 1) (column_number 2)))))
     |}]
 ;;
 
@@ -358,7 +358,7 @@ let%expect_test "should throw error with bad token" =
     {|
     (tokens
      (((Error "Invalid integer literal, 1ab")
-       ((filename [anon]) (line_number 1) (column_number 2)))))
+       ((filename -) (line_number 1) (column_number 2)))))
     |}]
 ;;
 
@@ -370,7 +370,7 @@ let%expect_test "should throw error with bad token (2)" =
     {|
     (tokens
      (((Error "Unknown start of token, !")
-       ((filename [anon]) (line_number 1) (column_number 2)))))
+       ((filename -) (line_number 1) (column_number 2)))))
     |}]
 ;;
 
@@ -382,7 +382,7 @@ let%expect_test "should throw error with bad token (3)" =
     {|
     (tokens
      (((Error "Invalid float literal, 3.o")
-       ((filename [anon]) (line_number 1) (column_number 2)))))
+       ((filename -) (line_number 1) (column_number 2)))))
     |}]
 ;;
 
@@ -393,22 +393,22 @@ let%expect_test "should work with weird tokens" =
   [%expect
     {|
     (tokens
-     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
-      ((Ok (Ident x)) ((filename [anon]) (line_number 1) (column_number 6)))
-      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 8)))
-      ((Ok (Float 3.4)) ((filename [anon]) (line_number 1) (column_number 10)))
-      ((Ok Plus_dot) ((filename [anon]) (line_number 1) (column_number 14)))
-      ((Ok (Float 5.)) ((filename [anon]) (line_number 1) (column_number 17)))
-      ((Ok In) ((filename [anon]) (line_number 1) (column_number 20)))
-      ((Ok Let) ((filename [anon]) (line_number 1) (column_number 23)))
-      ((Ok (Ident y)) ((filename [anon]) (line_number 1) (column_number 27)))
-      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 29)))
-      ((Ok (Int -3)) ((filename [anon]) (line_number 1) (column_number 31)))
-      ((Ok Plus) ((filename [anon]) (line_number 1) (column_number 34)))
-      ((Ok (Int 4)) ((filename [anon]) (line_number 1) (column_number 36)))
-      ((Ok In) ((filename [anon]) (line_number 1) (column_number 38)))
-      ((Ok Minus) ((filename [anon]) (line_number 1) (column_number 41)))
-      ((Ok (Ident z)) ((filename [anon]) (line_number 1) (column_number 42)))))
+     (((Ok Let) ((filename -) (line_number 1) (column_number 2)))
+      ((Ok (Ident x)) ((filename -) (line_number 1) (column_number 6)))
+      ((Ok Equal) ((filename -) (line_number 1) (column_number 8)))
+      ((Ok (Float 3.4)) ((filename -) (line_number 1) (column_number 10)))
+      ((Ok Plus_dot) ((filename -) (line_number 1) (column_number 14)))
+      ((Ok (Float 5.)) ((filename -) (line_number 1) (column_number 17)))
+      ((Ok In) ((filename -) (line_number 1) (column_number 20)))
+      ((Ok Let) ((filename -) (line_number 1) (column_number 23)))
+      ((Ok (Ident y)) ((filename -) (line_number 1) (column_number 27)))
+      ((Ok Equal) ((filename -) (line_number 1) (column_number 29)))
+      ((Ok (Int -3)) ((filename -) (line_number 1) (column_number 31)))
+      ((Ok Plus) ((filename -) (line_number 1) (column_number 34)))
+      ((Ok (Int 4)) ((filename -) (line_number 1) (column_number 36)))
+      ((Ok In) ((filename -) (line_number 1) (column_number 38)))
+      ((Ok Minus) ((filename -) (line_number 1) (column_number 41)))
+      ((Ok (Ident z)) ((filename -) (line_number 1) (column_number 42)))))
     |}]
 ;;
 
@@ -419,13 +419,10 @@ let%expect_test "should work with parsing string literals" =
   [%expect
     {|
     (tokens
-     (((Ok (String "\\hello"))
-       ((filename [anon]) (line_number 1) (column_number 2)))
-      ((Ok (String hello))
-       ((filename [anon]) (line_number 1) (column_number 12)))
-      ((Ok (String "hell\"o"))
-       ((filename [anon]) (line_number 1) (column_number 20)))
-      ((Ok (String foo)) ((filename [anon]) (line_number 1) (column_number 30)))))
+     (((Ok (String "\\hello")) ((filename -) (line_number 1) (column_number 2)))
+      ((Ok (String hello)) ((filename -) (line_number 1) (column_number 12)))
+      ((Ok (String "hell\"o")) ((filename -) (line_number 1) (column_number 20)))
+      ((Ok (String foo)) ((filename -) (line_number 1) (column_number 30)))))
     |}]
 ;;
 
@@ -436,8 +433,8 @@ let%expect_test "testing Array.create" =
   [%expect
     {|
     (tokens
-     (((Ok (Ident Array)) ((filename [anon]) (line_number 1) (column_number 2)))
-      ((Ok Dot) ((filename [anon]) (line_number 1) (column_number 7)))
-      ((Ok (Ident create)) ((filename [anon]) (line_number 1) (column_number 8)))))
+     (((Ok (Ident Array)) ((filename -) (line_number 1) (column_number 2)))
+      ((Ok Dot) ((filename -) (line_number 1) (column_number 7)))
+      ((Ok (Ident create)) ((filename -) (line_number 1) (column_number 8)))))
     |}]
 ;;
