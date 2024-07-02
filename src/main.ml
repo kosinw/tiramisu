@@ -1,9 +1,9 @@
 open! Core
 open! Tiramisu
 
-let lexer =
+let lex =
   Command.basic
-    ~summary:"Runs lexer and outputs token stream to stdout."
+    ~summary:"Runs the lexical analyzer and prints out token stream to stdout."
     (let open Command.Let_syntax in
      let%map_open filename =
        anon (maybe_with_default "-" ("filename" %: Filename_unix.arg_type))
@@ -16,9 +16,17 @@ let lexer =
        in
        let lexer = Lexer.from_channel ~filename channel in
        let tokens = Lexer.all lexer in
-       print_s [%message (tokens : Token.With_position.t Or_error.t list)];
+       print_s [%message (tokens : Lexer.Result.t list)];
        In_channel.close channel)
 ;;
 
-let group = Command.group ~summary:"The Tiramisu compiler" [ "lexer", lexer ]
-let () = Command_unix.run group
+let readme () =
+  "Tiramisu is a compiler for an ML language which targets to RISC-V assembly. It can \
+   also run individual compilation stages for analysis or debugging purposes."
+;;
+
+let () =
+  Command_unix.run
+    ~version:"1.0"
+    (Command.group ~summary:"Tiramisu" [ "lex", lex ] ~readme)
+;;

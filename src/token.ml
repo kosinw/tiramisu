@@ -41,7 +41,7 @@ type t =
   | Rec
   | Fun
   | Eof
-[@@deriving sexp_of, compare, equal]
+[@@deriving sexp_of, compare, equal, hash]
 
 let to_string = function
   | Int s -> s
@@ -84,15 +84,3 @@ let to_string = function
 ;;
 
 let length = Fn.compose String.length to_string
-
-module With_position = struct
-  type token = t [@@deriving sexp_of, compare, equal]
-
-  type t =
-    { token : token
-    ; position : Position.t
-    }
-  [@@deriving sexp_of, compare, equal, fields ~getters ~iterators:create]
-
-  let create = Fields.create
-end

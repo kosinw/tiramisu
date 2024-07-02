@@ -9,6 +9,10 @@ type t =
   }
 [@@deriving sexp_of]
 
+module Result = struct
+  type t = Token.t Or_error.t * Position.t [@@deriving sexp_of, compare, equal]
+end
+
 let from_string ?filename contents =
   { filename = Option.value ~default:"[anon]" filename
   ; contents
@@ -228,94 +232,74 @@ let token_with_position t =
   let t = skip_whitespace t in
   let position = to_position t in
   match token t with
-  | Ok token, t -> Ok (Token.With_position.create ~token ~position), t
-  | Error err, t -> Error err, t
+  | Ok token, t -> Ok token, position, t
+  | Error err, t -> Error err, position, t
 ;;
 
 let all t =
   let rec all' l t =
     match token_with_position t with
-    | Ok token, t ->
-      (match Token.With_position.token token with
+    | Ok token, position, t ->
+      (match token with
        | Token.Eof -> List.rev l
-       | _ -> all' (Ok token :: l) t)
-    | Error e, _ -> List.rev (Error e :: l)
+       | _ -> all' ((Ok token, position) :: l) t)
+    | Error e, position, _ -> List.rev ((Error e, position) :: l)
   in
   all' [] t
 ;;
 
-let current = Fn.compose fst token_with_position
-let advance = Fn.compose snd token_with_position
+let current t =
+  let token, position, _ = token_with_position t in
+  token, position
+;;
+
+let advance t =
+  let _, _, t = token_with_position t in
+  t
+;;
 
 let%expect_test "should work with basic program" =
   let lexer = from_string {| let hello = 3 in |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {|
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
     (tokens
-     ((Ok
-       ((token Let)
-        (position ((filename [anon]) (line_number 1) (column_number 2)))))
-      (Ok
-       ((token (Ident hello))
-        (position ((filename [anon]) (line_number 1) (column_number 6)))))
-      (Ok
-       ((token Equal)
-        (position ((filename [anon]) (line_number 1) (column_number 12)))))
-      (Ok
-       ((token (Int 3))
-        (position ((filename [anon]) (line_number 1) (column_number 14)))))
-      (Ok
-       ((token In)
-        (position ((filename [anon]) (line_number 1) (column_number 16)))))))
+     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 6)))
+      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 12)))
+      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 14)))
+      ((Ok In) ((filename [anon]) (line_number 1) (column_number 16)))))
     |}]
 ;;
 
 let%expect_test "should work with positions" =
   let lexer = from_string {| let hello = 3 in |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {|
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
     (tokens
-     ((Ok
-       ((token Let)
-        (position ((filename [anon]) (line_number 1) (column_number 2)))))
-      (Ok
-       ((token (Ident hello))
-        (position ((filename [anon]) (line_number 1) (column_number 6)))))
-      (Ok
-       ((token Equal)
-        (position ((filename [anon]) (line_number 1) (column_number 12)))))
-      (Ok
-       ((token (Int 3))
-        (position ((filename [anon]) (line_number 1) (column_number 14)))))
-      (Ok
-       ((token In)
-        (position ((filename [anon]) (line_number 1) (column_number 16)))))))
+     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 6)))
+      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 12)))
+      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 14)))
+      ((Ok In) ((filename [anon]) (line_number 1) (column_number 16)))))
     |}]
 ;;
 
 let%expect_test "should work with comments" =
   let lexer = from_string {| (* Hello, new world! *) let hello = 3 in |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {|
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
     (tokens
-     ((Ok
-       ((token Let)
-        (position ((filename [anon]) (line_number 1) (column_number 2)))))
-      (Ok
-       ((token (Ident hello))
-        (position ((filename [anon]) (line_number 1) (column_number 30)))))
-      (Ok
-       ((token Equal)
-        (position ((filename [anon]) (line_number 1) (column_number 36)))))
-      (Ok
-       ((token (Int 3))
-        (position ((filename [anon]) (line_number 1) (column_number 38)))))
-      (Ok
-       ((token In)
-        (position ((filename [anon]) (line_number 1) (column_number 40)))))))
+     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 30)))
+      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 36)))
+      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 38)))
+      ((Ok In) ((filename [anon]) (line_number 1) (column_number 40)))))
     |}]
 ;;
 
@@ -325,24 +309,15 @@ let%expect_test "should work with nested comments" =
       {| (* (* Hello, new world! *) (* Multiple nested comments *) *) let hello = 3 in |}
   in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {|
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
     (tokens
-     ((Ok
-       ((token Let)
-        (position ((filename [anon]) (line_number 1) (column_number 2)))))
-      (Ok
-       ((token (Ident hello))
-        (position ((filename [anon]) (line_number 1) (column_number 67)))))
-      (Ok
-       ((token Equal)
-        (position ((filename [anon]) (line_number 1) (column_number 73)))))
-      (Ok
-       ((token (Int 3))
-        (position ((filename [anon]) (line_number 1) (column_number 75)))))
-      (Ok
-       ((token In)
-        (position ((filename [anon]) (line_number 1) (column_number 77)))))))
+     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
+      ((Ok (Ident hello)) ((filename [anon]) (line_number 1) (column_number 67)))
+      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 73)))
+      ((Ok (Int 3)) ((filename [anon]) (line_number 1) (column_number 75)))
+      ((Ok In) ((filename [anon]) (line_number 1) (column_number 77)))))
     |}]
 ;;
 
@@ -356,130 +331,110 @@ let%expect_test "should work with comments on new lines" =
   |}
   in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
+  print_s [%message (tokens : Result.t list)];
   [%expect {| (tokens ()) |}]
 ;;
 
 let%expect_test "should throw error with unterminated comments" =
   let lexer = from_string {| (* |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {| (tokens ((Error "Comment not terminated"))) |}]
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
+    (tokens
+     (((Error "Comment not terminated")
+       ((filename [anon]) (line_number 1) (column_number 2)))))
+    |}]
 ;;
 
 let%expect_test "should throw error with bad token" =
   let lexer = from_string {| 1ab |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {| (tokens ((Error "Invalid integer literal, 1ab"))) |}]
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
+    (tokens
+     (((Error "Invalid integer literal, 1ab")
+       ((filename [anon]) (line_number 1) (column_number 2)))))
+    |}]
 ;;
 
 let%expect_test "should throw error with bad token (2)" =
   let lexer = from_string {| ! |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {| (tokens ((Error "Unknown start of token, !"))) |}]
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
+    (tokens
+     (((Error "Unknown start of token, !")
+       ((filename [anon]) (line_number 1) (column_number 2)))))
+    |}]
 ;;
 
 let%expect_test "should throw error with bad token (3)" =
   let lexer = from_string {| 3.o |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {| (tokens ((Error "Invalid float literal, 3.o"))) |}]
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
+    (tokens
+     (((Error "Invalid float literal, 3.o")
+       ((filename [anon]) (line_number 1) (column_number 2)))))
+    |}]
 ;;
 
 let%expect_test "should work with weird tokens" =
   let lexer = from_string {| let x = 3.4 +. 5. in let y = -3 + 4 in -z |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {|
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
     (tokens
-     ((Ok
-       ((token Let)
-        (position ((filename [anon]) (line_number 1) (column_number 2)))))
-      (Ok
-       ((token (Ident x))
-        (position ((filename [anon]) (line_number 1) (column_number 6)))))
-      (Ok
-       ((token Equal)
-        (position ((filename [anon]) (line_number 1) (column_number 8)))))
-      (Ok
-       ((token (Float 3.4))
-        (position ((filename [anon]) (line_number 1) (column_number 10)))))
-      (Ok
-       ((token Plus_dot)
-        (position ((filename [anon]) (line_number 1) (column_number 14)))))
-      (Ok
-       ((token (Float 5.))
-        (position ((filename [anon]) (line_number 1) (column_number 17)))))
-      (Ok
-       ((token In)
-        (position ((filename [anon]) (line_number 1) (column_number 20)))))
-      (Ok
-       ((token Let)
-        (position ((filename [anon]) (line_number 1) (column_number 23)))))
-      (Ok
-       ((token (Ident y))
-        (position ((filename [anon]) (line_number 1) (column_number 27)))))
-      (Ok
-       ((token Equal)
-        (position ((filename [anon]) (line_number 1) (column_number 29)))))
-      (Ok
-       ((token (Int -3))
-        (position ((filename [anon]) (line_number 1) (column_number 31)))))
-      (Ok
-       ((token Plus)
-        (position ((filename [anon]) (line_number 1) (column_number 34)))))
-      (Ok
-       ((token (Int 4))
-        (position ((filename [anon]) (line_number 1) (column_number 36)))))
-      (Ok
-       ((token In)
-        (position ((filename [anon]) (line_number 1) (column_number 38)))))
-      (Ok
-       ((token Minus)
-        (position ((filename [anon]) (line_number 1) (column_number 41)))))
-      (Ok
-       ((token (Ident z))
-        (position ((filename [anon]) (line_number 1) (column_number 42)))))))
+     (((Ok Let) ((filename [anon]) (line_number 1) (column_number 2)))
+      ((Ok (Ident x)) ((filename [anon]) (line_number 1) (column_number 6)))
+      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 8)))
+      ((Ok (Float 3.4)) ((filename [anon]) (line_number 1) (column_number 10)))
+      ((Ok Plus_dot) ((filename [anon]) (line_number 1) (column_number 14)))
+      ((Ok (Float 5.)) ((filename [anon]) (line_number 1) (column_number 17)))
+      ((Ok In) ((filename [anon]) (line_number 1) (column_number 20)))
+      ((Ok Let) ((filename [anon]) (line_number 1) (column_number 23)))
+      ((Ok (Ident y)) ((filename [anon]) (line_number 1) (column_number 27)))
+      ((Ok Equal) ((filename [anon]) (line_number 1) (column_number 29)))
+      ((Ok (Int -3)) ((filename [anon]) (line_number 1) (column_number 31)))
+      ((Ok Plus) ((filename [anon]) (line_number 1) (column_number 34)))
+      ((Ok (Int 4)) ((filename [anon]) (line_number 1) (column_number 36)))
+      ((Ok In) ((filename [anon]) (line_number 1) (column_number 38)))
+      ((Ok Minus) ((filename [anon]) (line_number 1) (column_number 41)))
+      ((Ok (Ident z)) ((filename [anon]) (line_number 1) (column_number 42)))))
     |}]
 ;;
 
 let%expect_test "should work with parsing string literals" =
   let lexer = from_string {| "\\hello" "hello" "hell\"o" "foo" |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {|
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
     (tokens
-     ((Ok
-       ((token (String "\\hello"))
-        (position ((filename [anon]) (line_number 1) (column_number 2)))))
-      (Ok
-       ((token (String hello))
-        (position ((filename [anon]) (line_number 1) (column_number 12)))))
-      (Ok
-       ((token (String "hell\"o"))
-        (position ((filename [anon]) (line_number 1) (column_number 20)))))
-      (Ok
-       ((token (String foo))
-        (position ((filename [anon]) (line_number 1) (column_number 30)))))))
+     (((Ok (String "\\hello"))
+       ((filename [anon]) (line_number 1) (column_number 2)))
+      ((Ok (String hello))
+       ((filename [anon]) (line_number 1) (column_number 12)))
+      ((Ok (String "hell\"o"))
+       ((filename [anon]) (line_number 1) (column_number 20)))
+      ((Ok (String foo)) ((filename [anon]) (line_number 1) (column_number 30)))))
     |}]
 ;;
 
 let%expect_test "testing Array.create" =
   let lexer = from_string {| Array.create |} in
   let tokens = all lexer in
-  print_s [%message (tokens : Token.With_position.t Or_error.t list)];
-  [%expect {|
+  print_s [%message (tokens : Result.t list)];
+  [%expect
+    {|
     (tokens
-     ((Ok
-       ((token (Ident Array))
-        (position ((filename [anon]) (line_number 1) (column_number 2)))))
-      (Ok
-       ((token Dot)
-        (position ((filename [anon]) (line_number 1) (column_number 7)))))
-      (Ok
-       ((token (Ident create))
-        (position ((filename [anon]) (line_number 1) (column_number 8)))))))
+     (((Ok (Ident Array)) ((filename [anon]) (line_number 1) (column_number 2)))
+      ((Ok Dot) ((filename [anon]) (line_number 1) (column_number 7)))
+      ((Ok (Ident create)) ((filename [anon]) (line_number 1) (column_number 8)))))
     |}]
 ;;
