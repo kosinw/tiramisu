@@ -1,7 +1,8 @@
 open! Core
 
 type t =
-  (* Literals *)
+  | Illegal of Error.t
+  (* Items *)
   | Int of string
   | Bool of bool
   | Float of string
@@ -40,10 +41,12 @@ type t =
   | In
   | Rec
   | Fun
+  (* End of file *)
   | Eof
 [@@deriving sexp_of, compare, equal, hash]
 
 let to_string = function
+  | Illegal _ -> ""
   | Int s -> s
   | Bool bool -> Bool.to_string bool
   | Float s -> s

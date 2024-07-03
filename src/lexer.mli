@@ -13,30 +13,23 @@ open! Core
 
 type t
 
-module Result : sig
-  type t = Token.t Or_error.t * Position.t [@@deriving sexp_of, compare, equal]
-
-  (** [token t] returns the token if this result is valid, otherwise returns [None]. *)
-  val token : t -> Token.t option
-
-  (** [position t] returns the position that this lexer result occured at. *)
-  val position : t -> Position.t
-end
-
 (** [from_string ?filename contents] creates a new [t] given the source code as a string. *)
 val from_string : ?filename:string -> string -> t
 
 (** [from_channel ?filename channel] creates a new [t] given the input channel. *)
 val from_channel : ?filename:string -> In_channel.t -> t
 
-(** [all t] returns the entire list of tokens from the lexer. *)
-val all : t -> Result.t list
+(** [all t] returns the entire list of tokens (with positions) from the lexer. *)
+val all : t -> (Token.t * Position.t) list
 
-(** [current t] returns the current token and the next state of the lexer. *)
-val current : t -> Result.t * t
+(** [position t] returns the current position of the lexer, skips whitespace. *)
+val position : t -> Position.t
+
+(** [token t] returns the current token and the next state of the lexer. *)
+val token : t -> Token.t * t
 
 (** [peek t] returns the next token to be produced by the lexer. *)
-val peek : t -> Result.t
+val peek : t -> Token.t
 
 (** [advance t] moves the lexer, forward by one token. *)
 val advance : t -> t

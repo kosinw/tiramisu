@@ -22,18 +22,18 @@ open! Core
 
 type expr =
   (* Constants *)
-  | Unit of Id.t
-  | Bool of Id.t * bool
-  | Int of Id.t * int
-  | Float of Id.t * float
+  | Unit
+  | Bool of bool
+  | Int of int
+  | Float of float
   (* Unary expressions *)
-  | UnaryOp of Id.t * unary_op * expr
+  | UnaryOp of unary_op * expr
   (* Binary expressions *)
-  | BinaryOp of Id.t * binary_op * expr * expr
+  | BinaryOp of binary_op * expr * expr
   (* Complex expressions *)
-  | Typed of Id.t * expr * Type.t
-  | Let of Id.t * string * Type.t * expr
-  | Conditional of Id.t * expr * expr * expr
+  | Typed of expr * Type.t
+  | Let of string * Type.t * expr
+  | Conditional of expr * expr * expr
 
 and unary_op =
   | Not
