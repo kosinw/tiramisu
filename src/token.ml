@@ -1,5 +1,8 @@
 open! Core
 
+(** [>>] is the forward composition operator. *)
+let ( >> ) f g x = x |> f |> g
+
 type t =
   | Illegal of Error.t
   (* Items *)
@@ -86,4 +89,4 @@ let to_string = function
   | Eof -> ""
 ;;
 
-let length = Fn.compose String.length to_string
+let length = to_string >> String.length

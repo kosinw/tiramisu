@@ -34,6 +34,7 @@ type expr =
   | Typed of expr * Type.t
   | Let of string * Type.t * expr
   | Conditional of expr * expr * expr
+  (* Error recovery *)
 
 and unary_op =
   | Not

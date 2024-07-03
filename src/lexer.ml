@@ -117,46 +117,32 @@ and with_numeric t =
   | Some '1' .. '9' -> with_decimal t
   | _ -> Token.Illegal (Error.of_string "Invalid integer literal"), advance_char t
 
-and with_digit ~f l t =
+and with_digit ~prefix ~f l t =
   match peek_char t with
-  | Some '.' -> with_float ~f ('.' :: l) (advance_char t)
-  | Some '_' -> with_digit ~f ('_' :: l) (advance_char t)
-  | Some x when f x -> with_digit ~f (x :: l) (advance_char t)
-  | Some x when Char.is_whitespace x -> Token.Int (String.of_list (List.rev l)), t
-  | None -> Token.Int (String.of_list (List.rev l)), t
+  | Some '.' -> with_float ~prefix ~f ('.' :: l) (advance_char t)
+  | Some '_' -> with_digit ~prefix ~f ('_' :: l) (advance_char t)
+  | Some x when f x -> with_digit ~prefix ~f (x :: l) (advance_char t)
+  | Some x when Char.is_whitespace x ->
+    Token.Int (prefix ^ String.of_list (List.rev l)), t
+  | None -> Token.Int (prefix ^ String.of_list (List.rev l)), t
   | _ ->
     ( Token.Illegal (Error.of_string [%string "Invalid integer literal"])
     , advance_until ~f:Char.is_whitespace t )
 
-and with_float ~f l t =
+and with_float ~prefix ~f l t =
   match peek_char t with
-  | Some '_' -> with_float ~f ('_' :: l) (advance_char t)
-  | Some x when f x -> with_float ~f (x :: l) (advance_char t)
+  | Some '_' -> with_float ~prefix ~f ('_' :: l) (advance_char t)
+  | Some x when f x -> with_float ~prefix ~f (x :: l) (advance_char t)
   | Some x when Char.is_whitespace x -> Token.Float (String.of_list (List.rev l)), t
-  | None -> Token.Float (String.of_list (List.rev l)), t
+  | None -> Token.Float (prefix ^ String.of_list (List.rev l)), t
   | _ ->
     ( Token.Illegal (Error.of_string [%string "Invalid float literal"])
     , advance_until ~f:Char.is_whitespace t )
 
-and with_hex t =
-  match with_digit ~f:Char.is_hex_digit [] t with
-  | Token.Int s, t -> Token.Int ("0x" ^ s), t
-  | Token.Float s, t -> Token.Float ("0x" ^ s), t
-  | _ as x -> x
-
-and with_binary t =
-  match with_digit ~f:is_binary_digit [] t with
-  | Token.Int s, t -> Token.Int ("0b" ^ s), t
-  | Token.Float s, t -> Token.Float ("0b" ^ s), t
-  | _ as x -> x
-
-and with_octal t =
-  match with_digit ~f:is_octal_digit [] t with
-  | Token.Int s, t -> Token.Int ("0o" ^ s), t
-  | Token.Float s, t -> Token.Float ("0o" ^ s), t
-  | _ as x -> x
-
-and with_decimal t = with_digit ~f:Char.is_digit [] t
+and with_hex t = with_digit ~prefix:"0x" ~f:is_binary_digit [] t
+and with_binary t = with_digit ~prefix:"0b" ~f:is_binary_digit [] t
+and with_octal t = with_digit ~prefix:"0o" ~f:is_octal_digit [] t
+and with_decimal t = with_digit ~prefix:"" ~f:Char.is_digit [] t
 
 and with_left_paren t =
   match peek_char t with
