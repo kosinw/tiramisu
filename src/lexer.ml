@@ -66,6 +66,10 @@ let is_octal_digit = function
   | _ -> false
 ;;
 
+let is_whitespace = Char.is_whitespace
+let is_hex_digit = Char.is_hex_digit
+let is_digit = Char.is_digit
+
 let consume_while ~f t =
   let rec consume_while' l t =
     match peek_char t with
@@ -88,7 +92,7 @@ let consume_one ~f t =
   | None -> `No (None, t)
 ;;
 
-let skip_whitespace = consume_while ~f:Char.is_whitespace >> snd
+let skip_whitespace = consume_while ~f:is_whitespace >> snd
 let consume_until ~f = consume_while ~f:(Fn.non f)
 let advance_until ~f = consume_until ~f >> snd
 
@@ -118,7 +122,7 @@ let rec token t =
   | Some '"' -> with_double_quote [] (advance_char t)
   | Some '0' .. '9' -> with_numeric ~negative:false t
   | Some x when is_identifier_start x -> keyword t
-  | Some x when Char.is_whitespace x -> token (skip_whitespace t)
+  | Some x when is_whitespace x -> token (skip_whitespace t)
   | Some x ->
     ( Token.Illegal (Error.of_string [%string "Unknown start of token: %{x#Char}"])
     , advance_char t )
@@ -163,7 +167,7 @@ and with_digit ~prefix ~f l t =
   | None -> Token.Int (prefix ^ String.of_list (List.rev l)), t
   | _ ->
     ( Token.Illegal (Error.of_string [%string "Invalid integer literal"])
-    , advance_until ~f:Char.is_whitespace t )
+    , advance_until ~f:is_whitespace t )
 
 and with_float ~prefix ~f l t =
   match peek_char t with
@@ -174,10 +178,10 @@ and with_float ~prefix ~f l t =
   | None -> Token.Float (prefix ^ String.of_list (List.rev l)), t
   | _ ->
     ( Token.Illegal (Error.of_string [%string "Invalid float literal"])
-    , advance_until ~f:Char.is_whitespace t )
+    , advance_until ~f:is_whitespace t )
 
 and with_hex ~negative t =
-  with_digit ~prefix:(if negative then "-0x" else "0x") ~f:Char.is_hex_digit [] t
+  with_digit ~prefix:(if negative then "-0x" else "0x") ~f:is_hex_digit [] t
 
 and with_binary ~negative t =
   with_digit ~prefix:(if negative then "-0b" else "0b") ~f:is_binary_digit [] t
@@ -186,7 +190,7 @@ and with_octal ~negative t =
   with_digit ~prefix:(if negative then "-0o" else "0o") ~f:is_octal_digit [] t
 
 and with_decimal ~negative t =
-  with_digit ~prefix:(if negative then "-" else "") ~f:Char.is_digit [] t
+  with_digit ~prefix:(if negative then "-" else "") ~f:is_digit [] t
 
 and with_left_paren t =
   match peek_char t with
