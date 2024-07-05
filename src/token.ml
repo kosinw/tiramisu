@@ -7,11 +7,12 @@ type t =
   | Illegal of Error.t
   (* Items *)
   | Int of string
-  | Bool of bool
   | Float of string
   | String of string
+  | Char of string
   | Ident of string
   (* Symbols *)
+  | Quote
   | Left_paren
   | Right_paren
   | Plus
@@ -32,7 +33,6 @@ type t =
   | Greater_equal
   | Comma
   | Dot
-  | Quote
   | Colon
   | Semicolon
   (* Keywords *)
@@ -44,6 +44,8 @@ type t =
   | In
   | Rec
   | Fun
+  | True
+  | False
   (* End of file *)
   | Eof
 [@@deriving sexp_of, compare, equal, hash]
@@ -51,10 +53,11 @@ type t =
 let to_string = function
   | Illegal _ -> ""
   | Int s -> s
-  | Bool bool -> Bool.to_string bool
   | Float s -> s
   | Ident ident -> ident
-  | String string -> [%string {|"%{string}"|}]
+  | Quote -> "'"
+  | String s -> s
+  | Char s -> s
   | Left_paren -> "("
   | Right_paren -> ")"
   | Plus -> "+"
@@ -75,7 +78,6 @@ let to_string = function
   | Greater_equal -> ">="
   | Comma -> ","
   | Dot -> "."
-  | Quote -> "'"
   | Colon -> ":"
   | Semicolon -> ";"
   | Not -> "not"
@@ -86,6 +88,8 @@ let to_string = function
   | In -> "in"
   | Rec -> "rec"
   | Fun -> "fun"
+  | True -> "true"
+  | False -> "false"
   | Eof -> ""
 ;;
 

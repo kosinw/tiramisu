@@ -46,6 +46,16 @@ let is_identifier = function
   | _ -> false
 ;;
 
+let is_identifier_start = function
+  | 'a' .. 'z' | 'A' .. 'Z' | '_' -> true
+  | _ -> false
+;;
+
+let is_escape_sequence = function
+  | '\\' | '"' | '\'' | 'n' | 't' | 'b' | 'r' | ' ' -> true
+  | _ -> false
+;;
+
 let is_binary_digit = function
   | '0' | '1' -> true
   | _ -> false
@@ -69,6 +79,15 @@ let consume_while ~f t =
   String.of_char_list (List.rev l), t
 ;;
 
+let consume_one ~f t =
+  match peek_char t with
+  | Some c ->
+    (match f c with
+     | true -> `Yes (c, advance_char t)
+     | false -> `No (Some c, t))
+  | None -> `No (None, t)
+;;
+
 let skip_whitespace = consume_while ~f:Char.is_whitespace >> snd
 let consume_until ~f = consume_while ~f:(Fn.non f)
 let advance_until ~f = consume_until ~f >> snd
@@ -85,7 +104,6 @@ let rec token t =
   | Some ')' -> Token.Right_paren, advance_char t
   | Some '=' -> Token.Equal, advance_char t
   | Some '.' -> Token.Dot, advance_char t
-  | Some '\'' -> Token.Quote, advance_char t
   | Some ':' -> Token.Colon, advance_char t
   | Some ',' -> Token.Comma, advance_char t
   | Some ';' -> Token.Semicolon, advance_char t
@@ -96,25 +114,43 @@ let rec token t =
   | Some '/' -> with_slash (advance_char t)
   | Some '<' -> with_less (advance_char t)
   | Some '>' -> with_greater (advance_char t)
-  | Some '"' -> with_quote [] (advance_char t)
-  | Some '0' .. '9' -> with_numeric t
-  | Some x when is_identifier x -> keyword t
+  | Some '\'' -> with_quote (advance_char t)
+  | Some '"' -> with_double_quote [] (advance_char t)
+  | Some '0' .. '9' -> with_numeric ~negative:false t
+  | Some x when is_identifier_start x -> keyword t
   | Some x when Char.is_whitespace x -> token (skip_whitespace t)
   | Some x ->
-    ( Token.Illegal (Error.of_string [%string "Unknown start of token, %{x#Char}"])
+    ( Token.Illegal (Error.of_string [%string "Unknown start of token: %{x#Char}"])
     , advance_char t )
   | None -> Token.Eof, t
 
-and with_numeric t =
+and with_quote t =
+  match peek_char t with
+  | Some '\\' ->
+    (match consume_one ~f:is_escape_sequence (advance_char t) with
+     | `Yes (c, t') ->
+       (match peek_char t' with
+        | Some '\'' -> Token.Char [%string {|'\%{c#Char}'|}], advance_char t'
+        | Some _ -> Token.Quote, t
+        | None -> Token.Quote, t)
+     | `No (_, t) -> Token.Quote, t)
+  | Some x ->
+    let t' = advance_char t in
+    (match peek_char t' with
+     | Some '\'' -> Token.Char [%string {|'%{x#Char}'|}], advance_char t'
+     | _ -> Token.Quote, t)
+  | None -> Token.Quote, t
+
+and with_numeric ~negative t =
   match peek_char t with
   | Some '0' ->
     let t = advance_char t in
     (match peek_char t with
-     | Some 'x' | Some 'X' -> with_hex (advance_char t)
-     | Some 'b' | Some 'B' -> with_binary (advance_char t)
-     | Some 'o' | Some 'O' -> with_octal (advance_char t)
-     | _ -> with_decimal t)
-  | Some '1' .. '9' -> with_decimal t
+     | Some 'x' | Some 'X' -> with_hex ~negative (advance_char t)
+     | Some 'b' | Some 'B' -> with_binary ~negative (advance_char t)
+     | Some 'o' | Some 'O' -> with_octal ~negative (advance_char t)
+     | _ -> with_decimal ~negative t)
+  | Some '1' .. '9' -> with_decimal ~negative t
   | _ -> Token.Illegal (Error.of_string "Invalid integer literal"), advance_char t
 
 and with_digit ~prefix ~f l t =
@@ -122,7 +158,7 @@ and with_digit ~prefix ~f l t =
   | Some '.' -> with_float ~prefix ~f ('.' :: l) (advance_char t)
   | Some '_' -> with_digit ~prefix ~f ('_' :: l) (advance_char t)
   | Some x when f x -> with_digit ~prefix ~f (x :: l) (advance_char t)
-  | Some x when Char.is_whitespace x ->
+  | Some x when not (is_identifier x) ->
     Token.Int (prefix ^ String.of_list (List.rev l)), t
   | None -> Token.Int (prefix ^ String.of_list (List.rev l)), t
   | _ ->
@@ -133,16 +169,24 @@ and with_float ~prefix ~f l t =
   match peek_char t with
   | Some '_' -> with_float ~prefix ~f ('_' :: l) (advance_char t)
   | Some x when f x -> with_float ~prefix ~f (x :: l) (advance_char t)
-  | Some x when Char.is_whitespace x -> Token.Float (String.of_list (List.rev l)), t
+  | Some x when not (is_identifier x) ->
+    Token.Float (prefix ^ String.of_list (List.rev l)), t
   | None -> Token.Float (prefix ^ String.of_list (List.rev l)), t
   | _ ->
     ( Token.Illegal (Error.of_string [%string "Invalid float literal"])
     , advance_until ~f:Char.is_whitespace t )
 
-and with_hex t = with_digit ~prefix:"0x" ~f:is_binary_digit [] t
-and with_binary t = with_digit ~prefix:"0b" ~f:is_binary_digit [] t
-and with_octal t = with_digit ~prefix:"0o" ~f:is_octal_digit [] t
-and with_decimal t = with_digit ~prefix:"" ~f:Char.is_digit [] t
+and with_hex ~negative t =
+  with_digit ~prefix:(if negative then "-0x" else "0x") ~f:Char.is_hex_digit [] t
+
+and with_binary ~negative t =
+  with_digit ~prefix:(if negative then "-0b" else "0b") ~f:is_binary_digit [] t
+
+and with_octal ~negative t =
+  with_digit ~prefix:(if negative then "-0o" else "0o") ~f:is_octal_digit [] t
+
+and with_decimal ~negative t =
+  with_digit ~prefix:(if negative then "-" else "") ~f:Char.is_digit [] t
 
 and with_left_paren t =
   match peek_char t with
@@ -158,6 +202,7 @@ and with_minus t =
   match peek_char t with
   | Some '.' -> Token.Minus_dot, advance_char t
   | Some '>' -> Token.Minus_greater, advance_char t
+  | Some '0' .. '9' -> with_numeric ~negative:true t
   | _ -> Token.Minus, t
 
 and with_ast t =
@@ -190,8 +235,8 @@ and keyword t =
   | "let", t -> Token.Let, t
   | "in", t -> Token.In, t
   | "rec", t -> Token.Rec, t
-  | "true", t -> Token.Bool true, t
-  | "false", t -> Token.Bool false, t
+  | "true", t -> Token.True, t
+  | "false", t -> Token.False, t
   | "fun", t -> Token.Fun, t
   | s, t -> Token.Ident s, t
 
@@ -213,26 +258,19 @@ and comment n t =
   | Some _ -> comment n (advance_char t)
   | None -> Token.Illegal (Error.of_string "Comment not terminated"), t
 
-and with_quote l t =
+and with_double_quote l t =
   match peek_char t with
-  | Some '"' -> Token.String (String.of_char_list (List.rev l)), advance_char t
+  | Some '"' ->
+    let contents = l |> List.rev |> String.of_char_list in
+    Token.String [%string {|"%{contents}"|}], advance_char t
   | Some '\\' ->
-    let t = advance_char t in
-    (match peek_char t with
-     | Some '\\' -> with_quote ('\\' :: l) (advance_char t)
-     | Some '"' -> with_quote ('"' :: l) (advance_char t)
-     | Some '\'' -> with_quote ('\'' :: l) (advance_char t)
-     | Some 'n' -> with_quote ('\n' :: l) (advance_char t)
-     | Some 'r' -> with_quote ('\r' :: l) (advance_char t)
-     | Some 't' -> with_quote ('\t' :: l) (advance_char t)
-     | Some 'b' -> with_quote ('\b' :: l) (advance_char t)
-     | Some ' ' -> with_quote (' ' :: l) (advance_char t)
-     | Some x ->
-       ( Token.Illegal
-           (Error.of_string [%string "String escape sequence unknown, \\%{x#Char}"])
-       , advance_until ~f:(Char.equal '"') t )
-     | None -> Token.Illegal (Error.of_string "String escape sequence not terminated"), t)
-  | Some c -> with_quote (c :: l) (advance_char t)
+    (match consume_one ~f:is_escape_sequence (advance_char t) with
+     | `Yes (c, t) -> with_double_quote ([ c; '\\' ] @ l) t
+     | `No (Some c, t) ->
+       ( Token.Illegal (Error.of_string [%string "Unknown escape sequence: \\%{c#Char}"])
+       , advance_char (advance_until ~f:(Char.equal '"') t) )
+     | `No (None, t) -> Token.Illegal (Error.of_string "Unexpected end of file"), t)
+  | Some c -> with_double_quote (c :: l) (advance_char t)
   | None -> Token.Illegal (Error.of_string "String literal not terminated"), t
 ;;
 
@@ -349,7 +387,7 @@ let%expect_test "should throw error with bad token (2)" =
   [%expect
     {|
     (tokens
-     (((Illegal "Unknown start of token, !")
+     (((Illegal "Unknown start of token: !")
        ((filename -) (line_number 1) (column_number 2)))
       (Eof ((filename -) (line_number 1) (column_number 4)))))
     |}]
@@ -369,7 +407,7 @@ let%expect_test "should throw error with bad token (3)" =
 ;;
 
 let%expect_test "should work with weird tokens" =
-  let lexer = from_string {| let x = 3.4 +. 5. in let y = -3 + 4 in -z |} in
+  let lexer = from_string {| let x = -3.4 +. 5. in let y = -3 + 4 in -z |} in
   let tokens = all lexer in
   print_s [%message (tokens : (Token.t * Position.t) list)];
   [%expect
@@ -378,40 +416,38 @@ let%expect_test "should work with weird tokens" =
      ((Let ((filename -) (line_number 1) (column_number 2)))
       ((Ident x) ((filename -) (line_number 1) (column_number 6)))
       (Equal ((filename -) (line_number 1) (column_number 8)))
-      ((Float 3.4) ((filename -) (line_number 1) (column_number 10)))
-      (Plus_dot ((filename -) (line_number 1) (column_number 14)))
-      ((Float 5.) ((filename -) (line_number 1) (column_number 17)))
-      (In ((filename -) (line_number 1) (column_number 20)))
-      (Let ((filename -) (line_number 1) (column_number 23)))
-      ((Ident y) ((filename -) (line_number 1) (column_number 27)))
-      (Equal ((filename -) (line_number 1) (column_number 29)))
-      (Minus ((filename -) (line_number 1) (column_number 31)))
-      ((Int 3) ((filename -) (line_number 1) (column_number 32)))
-      (Plus ((filename -) (line_number 1) (column_number 34)))
-      ((Int 4) ((filename -) (line_number 1) (column_number 36)))
-      (In ((filename -) (line_number 1) (column_number 38)))
-      (Minus ((filename -) (line_number 1) (column_number 41)))
-      ((Ident z) ((filename -) (line_number 1) (column_number 42)))
-      (Eof ((filename -) (line_number 1) (column_number 44)))))
+      ((Float -3.4) ((filename -) (line_number 1) (column_number 10)))
+      (Plus_dot ((filename -) (line_number 1) (column_number 15)))
+      ((Float 5.) ((filename -) (line_number 1) (column_number 18)))
+      (In ((filename -) (line_number 1) (column_number 21)))
+      (Let ((filename -) (line_number 1) (column_number 24)))
+      ((Ident y) ((filename -) (line_number 1) (column_number 28)))
+      (Equal ((filename -) (line_number 1) (column_number 30)))
+      ((Int -3) ((filename -) (line_number 1) (column_number 32)))
+      (Plus ((filename -) (line_number 1) (column_number 35)))
+      ((Int 4) ((filename -) (line_number 1) (column_number 37)))
+      (In ((filename -) (line_number 1) (column_number 39)))
+      (Minus ((filename -) (line_number 1) (column_number 42)))
+      ((Ident z) ((filename -) (line_number 1) (column_number 43)))
+      (Eof ((filename -) (line_number 1) (column_number 45)))))
     |}]
 ;;
 
 let%expect_test "should work with parsing string literals" =
-  let lexer = from_string {| "\\hello" "hello" "hell\"o" "foo" |} in
-  let tokens = all lexer in
-  print_s [%message (tokens : (Token.t * Position.t) list)];
-  [%expect
-    {|
-    (tokens
-     (((String "\\hello") ((filename -) (line_number 1) (column_number 2)))
-      ((String hello) ((filename -) (line_number 1) (column_number 12)))
-      ((String "hell\"o") ((filename -) (line_number 1) (column_number 20)))
-      ((String foo) ((filename -) (line_number 1) (column_number 30)))
-      (Eof ((filename -) (line_number 1) (column_number 36)))))
+  from_string {| "\\hello" "hello\n" "hell\"o" "foo"|}
+  |> all
+  |> List.map ~f:(fst >> Token.to_string)
+  |> String.concat_lines
+  |> print_endline;
+  [%expect {|
+    "\\hello"
+    "hello\n"
+    "hell\"o"
+    "foo"
     |}]
 ;;
 
-let%expect_test "testing Array.create" =
+let%expect_test "should parse Array.create" =
   let lexer = from_string {| Array.create |} in
   let tokens = all lexer in
   print_s [%message (tokens : (Token.t * Position.t) list)];
@@ -422,5 +458,61 @@ let%expect_test "testing Array.create" =
       (Dot ((filename -) (line_number 1) (column_number 7)))
       ((Ident create) ((filename -) (line_number 1) (column_number 8)))
       (Eof ((filename -) (line_number 1) (column_number 15)))))
+    |}]
+;;
+
+let%expect_test "should work with parsing char escape literals" =
+  from_string {|'ident 'x' '\ ' '\n' 'n '|}
+  |> all
+  |> List.map ~f:(fst >> Token.to_string)
+  |> String.concat_lines
+  |> print_endline;
+  [%expect {|
+    '
+    ident
+    'x'
+    '\ '
+    '\n'
+    '
+    n
+    '
+    |}]
+;;
+
+let%expect_test "should work with parsing different types of numerics" =
+  from_string {|3.14 -0o767 +999 0xdeadbeef 0xdead.BEEF 0123|}
+  |> all
+  |> List.map ~f:(fst >> Token.to_string)
+  |> String.concat_lines
+  |> print_endline;
+  [%expect
+    {|
+    3.14
+    -0o767
+    +
+    999
+    0xdeadbeef
+    0xdead.BEEF
+    123
+    |}]
+;;
+
+let%expect_test "should work with integer/float literals next to symbols" =
+  from_string {|(3) (-15) 22/ 33-14|}
+  |> all
+  |> List.map ~f:(fst >> Token.to_string)
+  |> String.concat_lines
+  |> print_endline;
+  [%expect {|
+    (
+    3
+    )
+    (
+    -15
+    )
+    22
+    /
+    33
+    -14
     |}]
 ;;

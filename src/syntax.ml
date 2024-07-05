@@ -1,3 +1,5 @@
+open! Core
+
 (** Untyped abstract syntax tree for Tiramisu.
 
     This module implements the untyped, abstract syntax tree IR for the Tiramisu compiler.
@@ -18,38 +20,23 @@
     - Type variables (e.g. 'a)
     - Type functions (e.g. string list) *)
 
-open! Core
+module Annotated = struct
+  type 'a t =
+    { id : Id.t
+    ; t : 'a
+    }
+  [@@deriving sexp_of]
+end
 
 type expr =
-  (* Constants *)
+  | Constant of constant Annotated.t
+
+and constant =
   | Unit
   | Bool of bool
   | Int of int
   | Float of float
-  (* Unary expressions *)
-  | UnaryOp of unary_op * expr
-  (* Binary expressions *)
-  | BinaryOp of binary_op * expr * expr
-  (* Complex expressions *)
-  | Typed of expr * Type.t
-  | Let of string * Type.t * expr
-  | Conditional of expr * expr * expr
-  (* Error recovery *)
+  | String of string
+[@@deriving sexp_of]
 
-and unary_op =
-  | Not
-  | Neg
-  | Neg_float
-
-and binary_op =
-  | Add
-  | Sub
-  | Add_float
-  | Sub_float
-  | Mul_float
-  | Div_float
-  | Eq
-  | Le
-[@@deriving sexp, compare, equal, hash]
-
-type t = expr [@@deriving sexp, compare, equal, hash]
+type t = expr [@@deriving sexp_of]

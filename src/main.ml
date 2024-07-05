@@ -10,13 +10,14 @@ let lex =
      in
      fun () ->
        let channel =
-         if String.equal filename "-"
-         then In_channel.stdin
-         else In_channel.create filename
+         match filename with
+         | "-" -> In_channel.stdin
+         | _ -> In_channel.create filename
        in
        let lexer = Lexer.from_channel ~filename channel in
        let tokens = Lexer.all lexer in
-       List.iter ~f:(Fn.compose print_s [%sexp_of: Token.t * Position.t]) tokens;
+       List.iter tokens ~f:(fun (token, position) ->
+         print_s [%message "" ~token:(token : Token.t) ~position:(position : Position.t)]);
        In_channel.close channel)
 ;;
 
