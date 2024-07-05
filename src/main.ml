@@ -22,7 +22,7 @@ let lex =
 ;;
 
 let readme () =
-  "Tiramisu is a compiler for an ML language which targets RISC-V assembly. It can also \
+  "Tiramisu is a compiler for an OCaml subset which targets RISC-V assembly. It can also \
    run individual compilation stages for analysis or debugging purposes."
 ;;
 

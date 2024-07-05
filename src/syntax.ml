@@ -20,23 +20,21 @@ open! Core
     - Type variables (e.g. 'a)
     - Type functions (e.g. string list) *)
 
-module Annotated = struct
-  type 'a t =
-    { id : Id.t
-    ; t : 'a
-    }
-  [@@deriving sexp_of]
-end
+(* type expr = *)
+(*   { expr_id : Id.t *)
+(*   ; expr_desc : expr_desc *)
+(*   } *)
 
-type expr =
-  | Constant of constant Annotated.t
+(* and expr_desc = *)
+(*   |  *)
+(* [@@deriving sexp_of] *)
 
-and constant =
-  | Unit
-  | Bool of bool
-  | Int of int
-  | Float of float
-  | String of string
-[@@deriving sexp_of]
+(* and constant = *)
+(*   | Unit *)
+(*   | Bool of bool *)
+(*   | Int of int *)
+(*   | Float of float *)
+(*   | String of string *)
+(* [@@deriving sexp_of] *)
 
-type t = expr [@@deriving sexp_of]
+(* type t = expr [@@deriving sexp_of] *)

@@ -23,7 +23,7 @@ val from_channel : ?filename:string -> In_channel.t -> t
 (** [all t] returns the entire list of tokens (with positions) from the lexer. *)
 val all : t -> (Token.t * Position.t) list
 
-(** [position t] returns the current position of the lexer, skipping whitespace. *)
+(** [position t] returns the current position of the lexer (skips whitespace and comments). *)
 val position : t -> Position.t
 
 (** [token t] returns the current token and the next state of the lexer. *)

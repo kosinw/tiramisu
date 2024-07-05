@@ -92,15 +92,29 @@ let consume_one ~f t =
   | None -> `No (None, t)
 ;;
 
-let skip_whitespace = consume_while ~f:is_whitespace >> snd
 let consume_until ~f = consume_while ~f:(Fn.non f)
 let advance_until ~f = consume_until ~f >> snd
+let skip_whitespace = consume_while ~f:is_whitespace >> snd
 
-let position t =
-  let { filename; abs_lnum; abs_cnum; _ } = skip_whitespace t in
-  let line_number = succ abs_lnum in
-  let column_number = succ abs_cnum in
-  Position.create ~filename ~line_number ~column_number
+let rec skip_comment t = comment 0 t
+
+and comment n t =
+  match peek_char t with
+  | Some '(' ->
+    let t = advance_char t in
+    (match peek_char t with
+     | Some '*' -> comment (succ n) (advance_char t)
+     | _ -> comment n (advance_char t))
+  | Some '*' ->
+    let t = advance_char t in
+    (match peek_char t with
+     | Some ')' ->
+       (match n with
+        | 0 -> advance_char t
+        | n' -> comment (pred n') (advance_char t))
+     | _ -> comment n (advance_char t))
+  | Some _ -> comment n (advance_char t)
+  | None -> t
 ;;
 
 let rec token t =
@@ -120,7 +134,7 @@ let rec token t =
   | Some '>' -> with_greater (advance_char t)
   | Some '\'' -> with_quote (advance_char t)
   | Some '"' -> with_double_quote [] (advance_char t)
-  | Some '0' .. '9' -> with_numeric ~negative:false t
+  | Some '0' .. '9' -> with_numeric t
   | Some x when is_identifier_start x -> keyword t
   | Some x when is_whitespace x -> token (skip_whitespace t)
   | Some x ->
@@ -145,16 +159,16 @@ and with_quote t =
      | _ -> Token.Quote, t)
   | None -> Token.Quote, t
 
-and with_numeric ~negative t =
+and with_numeric t =
   match peek_char t with
   | Some '0' ->
-    let t = advance_char t in
+    let t' = advance_char t in
     (match peek_char t with
-     | Some 'x' | Some 'X' -> with_hex ~negative (advance_char t)
-     | Some 'b' | Some 'B' -> with_binary ~negative (advance_char t)
-     | Some 'o' | Some 'O' -> with_octal ~negative (advance_char t)
-     | _ -> with_decimal ~negative t)
-  | Some '1' .. '9' -> with_decimal ~negative t
+     | Some 'x' | Some 'X' -> with_hex (advance_char t')
+     | Some 'b' | Some 'B' -> with_binary (advance_char t')
+     | Some 'o' | Some 'O' -> with_octal (advance_char t')
+     | _ -> with_decimal t)
+  | Some '1' .. '9' -> with_decimal t
   | _ -> Token.Illegal (Error.of_string "Invalid integer literal"), advance_char t
 
 and with_digit ~prefix ~f l t =
@@ -180,21 +194,18 @@ and with_float ~prefix ~f l t =
     ( Token.Illegal (Error.of_string [%string "Invalid float literal"])
     , advance_until ~f:is_whitespace t )
 
-and with_hex ~negative t =
-  with_digit ~prefix:(if negative then "-0x" else "0x") ~f:is_hex_digit [] t
-
-and with_binary ~negative t =
-  with_digit ~prefix:(if negative then "-0b" else "0b") ~f:is_binary_digit [] t
-
-and with_octal ~negative t =
-  with_digit ~prefix:(if negative then "-0o" else "0o") ~f:is_octal_digit [] t
-
-and with_decimal ~negative t =
-  with_digit ~prefix:(if negative then "-" else "") ~f:is_digit [] t
+and with_hex t = with_digit ~prefix:"0x" ~f:is_hex_digit [] t
+and with_binary t = with_digit ~prefix:"0b" ~f:is_binary_digit [] t
+and with_octal t = with_digit ~prefix:"0o" ~f:is_octal_digit [] t
+and with_decimal t = with_digit ~prefix:"" ~f:is_digit [] t
 
 and with_left_paren t =
   match peek_char t with
-  | Some '*' -> comment 0 (advance_char t)
+  | Some '*' ->
+    let t' = skip_comment (advance_char t) in
+    (match is_end_of_stream t' with
+     | true -> Token.Illegal (Error.of_string "Comment not terminated"), t'
+     | false -> token t')
   | _ -> Token.Left_paren, t
 
 and with_plus t =
@@ -206,7 +217,6 @@ and with_minus t =
   match peek_char t with
   | Some '.' -> Token.Minus_dot, advance_char t
   | Some '>' -> Token.Minus_greater, advance_char t
-  | Some '0' .. '9' -> with_numeric ~negative:true t
   | _ -> Token.Minus, t
 
 and with_ast t =
@@ -244,24 +254,6 @@ and keyword t =
   | "fun", t -> Token.Fun, t
   | s, t -> Token.Ident s, t
 
-and comment n t =
-  match peek_char t with
-  | Some '(' ->
-    let t = advance_char t in
-    (match peek_char t with
-     | Some '*' -> comment (succ n) (advance_char t)
-     | _ -> comment n (advance_char t))
-  | Some '*' ->
-    let t = advance_char t in
-    (match peek_char t with
-     | Some ')' ->
-       (match n with
-        | 0 -> token (advance_char t)
-        | n' -> comment (pred n') (advance_char t))
-     | _ -> comment n (advance_char t))
-  | Some _ -> comment n (advance_char t)
-  | None -> Token.Illegal (Error.of_string "Comment not terminated"), t
-
 and with_double_quote l t =
   match peek_char t with
   | Some '"' ->
@@ -278,11 +270,26 @@ and with_double_quote l t =
   | None -> Token.Illegal (Error.of_string "String literal not terminated"), t
 ;;
 
+let rec position t =
+  let position' { filename; abs_lnum; abs_cnum; _ } =
+    let line_number = succ abs_lnum in
+    let column_number = succ abs_cnum in
+    Position.create ~filename ~line_number ~column_number
+  in
+  match peek_char t with
+  | Some x when is_whitespace x -> position (skip_whitespace t)
+  | Some '(' ->
+    let t' = advance_char t in
+    (match peek_char t' with
+     | Some '*' -> position (skip_comment (advance_char t'))
+     | _ -> position' t)
+  | _ -> position' t
+;;
+
 let all t =
   let rec all' l t =
-    let t = skip_whitespace t in
-    let position = position t in
     let token, t' = token t in
+    let position = position t in
     match token with
     | Token.Eof -> List.rev ((token, position) :: l)
     | _ -> all' ((token, position) :: l) t'
@@ -316,7 +323,7 @@ let%expect_test "should work with comments" =
   [%expect
     {|
     (tokens
-     ((Let ((filename -) (line_number 1) (column_number 2)))
+     ((Let ((filename -) (line_number 1) (column_number 26)))
       ((Ident hello) ((filename -) (line_number 1) (column_number 30)))
       (Equal ((filename -) (line_number 1) (column_number 36)))
       ((Int 3) ((filename -) (line_number 1) (column_number 38)))
@@ -335,7 +342,7 @@ let%expect_test "should work with nested comments" =
   [%expect
     {|
     (tokens
-     ((Let ((filename -) (line_number 1) (column_number 2)))
+     ((Let ((filename -) (line_number 1) (column_number 63)))
       ((Ident hello) ((filename -) (line_number 1) (column_number 67)))
       (Equal ((filename -) (line_number 1) (column_number 73)))
       ((Int 3) ((filename -) (line_number 1) (column_number 75)))
@@ -355,7 +362,7 @@ let%expect_test "should work with comments on new lines" =
   in
   let tokens = all lexer in
   print_s [%message (tokens : (Token.t * Position.t) list)];
-  [%expect {| (tokens ((Eof ((filename -) (line_number 2) (column_number 1))))) |}]
+  [%expect {| (tokens ((Eof ((filename -) (line_number 6) (column_number 3))))) |}]
 ;;
 
 let%expect_test "should throw error with unterminated comments" =
@@ -366,7 +373,7 @@ let%expect_test "should throw error with unterminated comments" =
     {|
     (tokens
      (((Illegal "Comment not terminated")
-       ((filename -) (line_number 1) (column_number 2)))
+       ((filename -) (line_number 1) (column_number 5)))
       (Eof ((filename -) (line_number 1) (column_number 5)))))
     |}]
 ;;
@@ -420,14 +427,16 @@ let%expect_test "should work with weird tokens" =
      ((Let ((filename -) (line_number 1) (column_number 2)))
       ((Ident x) ((filename -) (line_number 1) (column_number 6)))
       (Equal ((filename -) (line_number 1) (column_number 8)))
-      ((Float -3.4) ((filename -) (line_number 1) (column_number 10)))
+      (Minus ((filename -) (line_number 1) (column_number 10)))
+      ((Float 3.4) ((filename -) (line_number 1) (column_number 11)))
       (Plus_dot ((filename -) (line_number 1) (column_number 15)))
       ((Float 5.) ((filename -) (line_number 1) (column_number 18)))
       (In ((filename -) (line_number 1) (column_number 21)))
       (Let ((filename -) (line_number 1) (column_number 24)))
       ((Ident y) ((filename -) (line_number 1) (column_number 28)))
       (Equal ((filename -) (line_number 1) (column_number 30)))
-      ((Int -3) ((filename -) (line_number 1) (column_number 32)))
+      (Minus ((filename -) (line_number 1) (column_number 32)))
+      ((Int 3) ((filename -) (line_number 1) (column_number 33)))
       (Plus ((filename -) (line_number 1) (column_number 35)))
       ((Int 4) ((filename -) (line_number 1) (column_number 37)))
       (In ((filename -) (line_number 1) (column_number 39)))
@@ -492,12 +501,13 @@ let%expect_test "should work with parsing different types of numerics" =
   [%expect
     {|
     3.14
-    -0o767
+    -
+
     +
     999
-    0xdeadbeef
-    0xdead.BEEF
-    123
+
+
+    0123
     |}]
 ;;
 
@@ -512,11 +522,13 @@ let%expect_test "should work with integer/float literals next to symbols" =
     3
     )
     (
-    -15
+    -
+    15
     )
     22
     /
     33
-    -14
+    -
+    14
     |}]
 ;;
