@@ -17,7 +17,7 @@ let lex =
        let lexer = Lexer.from_channel ~filename channel in
        let tokens = Lexer.all lexer in
        List.iter tokens ~f:(fun (token, position) ->
-         print_s [%message "" ~token:(token : Token.t) ~position:(position : Position.t)]);
+         print_s [%message "" ~_:(token : Token.t) ~_:(position : Position.t)]);
        In_channel.close channel)
 ;;
 

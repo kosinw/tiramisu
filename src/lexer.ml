@@ -10,7 +10,6 @@ type t =
   ; abs_lnum : int
   ; abs_cnum : int
   }
-[@@deriving sexp_of]
 
 let from_string ?filename contents =
   { filename = Option.value ~default:"-" filename
@@ -92,8 +91,7 @@ let consume_one ~f t =
   | None -> `No (None, t)
 ;;
 
-let consume_until ~f = consume_while ~f:(Fn.non f)
-let advance_until ~f = consume_until ~f >> snd
+let advance_until ~f = consume_while ~f:(Fn.non f) >> snd
 let skip_whitespace = consume_while ~f:is_whitespace >> snd
 
 let rec skip_comment t = comment 0 t
@@ -163,7 +161,7 @@ and with_numeric t =
   match peek_char t with
   | Some '0' ->
     let t' = advance_char t in
-    (match peek_char t with
+    (match peek_char t' with
      | Some 'x' | Some 'X' -> with_hex (advance_char t')
      | Some 'b' | Some 'B' -> with_binary (advance_char t')
      | Some 'o' | Some 'O' -> with_octal (advance_char t')
@@ -286,13 +284,17 @@ let rec position t =
   | _ -> position' t
 ;;
 
+let lex t =
+  let a, b = token t in
+  let c = position t in
+  a, c, b
+;;
+
 let all t =
   let rec all' l t =
-    let token, t' = token t in
-    let position = position t in
-    match token with
-    | Token.Eof -> List.rev ((token, position) :: l)
-    | _ -> all' ((token, position) :: l) t'
+    match lex t with
+    | Token.Eof, position, _ -> List.rev ((Token.Eof, position) :: l)
+    | token, position, t' -> all' ((token, position) :: l) t'
   in
   all' [] t
 ;;
@@ -498,15 +500,14 @@ let%expect_test "should work with parsing different types of numerics" =
   |> List.map ~f:(fst >> Token.to_string)
   |> String.concat_lines
   |> print_endline;
-  [%expect
-    {|
+  [%expect {|
     3.14
     -
-
+    0o767
     +
     999
-
-
+    0xdeadbeef
+    0xdead.BEEF
     0123
     |}]
 ;;
@@ -517,7 +518,8 @@ let%expect_test "should work with integer/float literals next to symbols" =
   |> List.map ~f:(fst >> Token.to_string)
   |> String.concat_lines
   |> print_endline;
-  [%expect {|
+  [%expect
+    {|
     (
     3
     )
