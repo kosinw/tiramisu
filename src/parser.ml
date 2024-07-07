@@ -1,5 +1,4 @@
 open! Core
-open Syntax
 open Annotated
 
 (* TODO kosinw: Modify parser state to cache token peeks + currents.
@@ -61,12 +60,9 @@ module State = struct
   ;;
 end
 
-type t =
-  { syntax : Syntax.t
-  ; state : State.t
-  }
-
 open State
+
+type t = Syntax.t * State.t
 
 let rec program state =
   let e, state = expr 0 state in
@@ -90,10 +86,7 @@ and prefix_expr prec state =
   | Token.Left_paren -> paren_expr state
   | _ -> failwith ""
 
-and simple_expr expr' state =
-  let fst = position state in
-  annotate ~fst expr' state
-
+and simple_expr e state = annotate ~fst:(position state) e state
 and int_expr i state = simple_expr (Syntax.Int i) state
 and float_expr f state = simple_expr (Syntax.Float f) state
 and char_expr c state = simple_expr (Syntax.Char c) state
@@ -103,7 +96,7 @@ and unit_expr state = simple_expr Syntax.Unit state
 and var_expr v state = simple_expr (Syntax.Variable v) state
 
 and paren_expr state =
-  let state = advance (expect ~expected:Token.Left_paren state) in
+  let state = state |> expect ~expected:Token.Left_paren |> advance in
   match current state with
   | Token.Right_paren -> unit_expr state
   | _ ->
@@ -120,12 +113,12 @@ let parse lexer =
     | 0 -> syntax
     | _ -> return Syntax.Illegal
   in
-  { syntax; state }
+  syntax, state
 ;;
 
-let syntax t = t.syntax
-let errors t = errors t.state
-let spans t = spans t.state
+let syntax (syntax, _) = syntax
+let errors (_, state) = errors state
+let spans (_, state) = spans state
 
 let run_parser string =
   Id.For_test.reset ();

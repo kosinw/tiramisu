@@ -9,33 +9,6 @@ open! Core
     - Tuple construction (e.g. (1, 2, 3) or (4, "pi", true))
     - Constraint expressions (e.g. (5 : bool) or (x : string)) *)
 
-module Annotated : sig
-  type 'a t [@@deriving sexp]
-
-  (** [id t] reads the annotation id. *)
-  val id : 'a t -> Id.t
-
-  (** [contents t] reads the value. *)
-  val contents : 'a t -> 'a
-
-  include Monad.S with type 'a t := 'a t
-end = struct
-  module T = struct
-    type 'a t =
-      { id : Id.t
-      ; contents : 'a
-      }
-    [@@deriving sexp, fields ~getters]
-
-    let return contents = { id = Id.create (); contents }
-    let bind t ~f = { (f t.contents) with id = t.id }
-    let map = `Custom (fun a ~f -> { a with contents = f a.contents })
-  end
-
-  include T
-  include Monad.Make (T)
-end
-
 type expr = expr' Annotated.t
 
 and expr' =
