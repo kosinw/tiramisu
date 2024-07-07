@@ -48,7 +48,7 @@ type t =
   | False
   (* End of file *)
   | Eof
-[@@deriving sexp_of, compare, equal, hash]
+[@@deriving sexp_of, compare, equal, hash, variants]
 
 let to_string = function
   | Illegal _ -> ""
@@ -91,6 +91,49 @@ let to_string = function
   | True -> "true"
   | False -> "false"
   | Eof -> ""
+;;
+
+let describe = function
+  | Illegal _ -> "illegal token"
+  | Int _ -> "integer literal"
+  | Float _ -> "float literal"
+  | Ident _ -> "identifier"
+  | Quote -> "'"
+  | String _ -> "string literal"
+  | Char _ -> "character literal"
+  | Left_paren -> "("
+  | Right_paren -> ")"
+  | Plus -> "+"
+  | Plus_dot -> "+."
+  | Minus -> "-"
+  | Minus_dot -> "-"
+  | Minus_greater -> "->"
+  | Asterisk -> "*"
+  | Asterisk_dot -> "*."
+  | Slash -> "/"
+  | Slash_dot -> "/."
+  | Equal -> "="
+  | Less -> "<"
+  | Less_greater -> "<>"
+  | Less_equal -> "<="
+  | Less_minus -> "<-"
+  | Greater -> ">"
+  | Greater_equal -> ">="
+  | Comma -> ","
+  | Dot -> "."
+  | Colon -> ":"
+  | Semicolon -> ";"
+  | Not -> "not"
+  | If -> "if"
+  | Then -> "then"
+  | Else -> "else"
+  | Let -> "let"
+  | In -> "in"
+  | Rec -> "rec"
+  | Fun -> "fun"
+  | True -> "true"
+  | False -> "false"
+  | Eof -> "end of file"
 ;;
 
 let length = to_string >> String.length

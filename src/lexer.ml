@@ -299,7 +299,7 @@ let all t =
   all' [] t
 ;;
 
-let peek = token >> fst
+let current = token >> fst
 let advance = token >> snd
 
 let%expect_test "should work with basic program" =
@@ -451,14 +451,16 @@ let%expect_test "should work with weird tokens" =
 let%expect_test "should work with parsing string literals" =
   from_string {| "\\hello" "hello\n" "hell\"o" "foo"|}
   |> all
-  |> List.map ~f:(fst >> Token.to_string)
+  |> List.map ~f:(fst >> Token.sexp_of_t >> Sexp.to_string)
   |> String.concat_lines
   |> print_endline;
-  [%expect {|
-    "\\hello"
-    "hello\n"
-    "hell\"o"
-    "foo"
+  [%expect
+    {|
+    (String"\"\\\\hello\"")
+    (String"\"hello\\n\"")
+    (String"\"hell\\\"o\"")
+    (String"\"foo\"")
+    Eof
     |}]
 ;;
 
@@ -497,40 +499,43 @@ let%expect_test "should work with parsing char escape literals" =
 let%expect_test "should work with parsing different types of numerics" =
   from_string {|3.14 -0o767 +999 0xdeadbeef 0xdead.BEEF 0123|}
   |> all
-  |> List.map ~f:(fst >> Token.to_string)
+  |> List.map ~f:(fst >> Token.sexp_of_t >> Sexp.to_string)
   |> String.concat_lines
   |> print_endline;
-  [%expect {|
-    3.14
-    -
-    0o767
-    +
-    999
-    0xdeadbeef
-    0xdead.BEEF
-    0123
+  [%expect
+    {|
+    (Float 3.14)
+    Minus
+    (Int 0o767)
+    Plus
+    (Int 999)
+    (Int 0xdeadbeef)
+    (Float 0xdead.BEEF)
+    (Int 0123)
+    Eof
     |}]
 ;;
 
 let%expect_test "should work with integer/float literals next to symbols" =
   from_string {|(3) (-15) 22/ 33-14|}
   |> all
-  |> List.map ~f:(fst >> Token.to_string)
+  |> List.map ~f:(fst >> Token.sexp_of_t >> Sexp.to_string)
   |> String.concat_lines
   |> print_endline;
   [%expect
     {|
-    (
-    3
-    )
-    (
-    -
-    15
-    )
-    22
-    /
-    33
-    -
-    14
+    Left_paren
+    (Int 3)
+    Right_paren
+    Left_paren
+    Minus
+    (Int 15)
+    Right_paren
+    (Int 22)
+    Slash
+    (Int 33)
+    Minus
+    (Int 14)
+    Eof
     |}]
 ;;

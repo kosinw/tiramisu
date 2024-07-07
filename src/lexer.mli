@@ -26,8 +26,8 @@ val all : t -> (Token.t * Position.t) list
 (** [lex t] returns the current token, the position, and the next state of the lexer. *)
 val lex : t -> Token.t * Position.t * t
 
-(** [peek t] returns the next token to be produced by the lexer. *)
-val peek : t -> Token.t
+(** [current t] returns the current token of the lexer. *)
+val current : t -> Token.t
 
 (** [position t] returns the current position of the lexer (skips whitespace and comments). *)
 val position : t -> Position.t
