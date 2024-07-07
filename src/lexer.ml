@@ -268,12 +268,13 @@ and with_double_quote l t =
   | None -> Token.Illegal (Error.of_string "String literal not terminated"), t
 ;;
 
+let position' { filename; abs_lnum; abs_cnum; _ } =
+  let line_number = succ abs_lnum in
+  let column_number = succ abs_cnum in
+  Position.create ~filename ~line_number ~column_number
+;;
+
 let rec position t =
-  let position' { filename; abs_lnum; abs_cnum; _ } =
-    let line_number = succ abs_lnum in
-    let column_number = succ abs_cnum in
-    Position.create ~filename ~line_number ~column_number
-  in
   match peek_char t with
   | Some x when is_whitespace x -> position (skip_whitespace t)
   | Some '(' ->

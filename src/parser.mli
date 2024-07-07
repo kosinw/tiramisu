@@ -13,5 +13,5 @@ val syntax : t -> Syntax.t
 (** [errors t] returns the list of errors encountered during the parse. *)
 val errors : t -> (Error.t * Position.t) list
 
-(** [locations t id] returns the locations of each syntax tree element. *)
-val locations : t -> (Position.t * Position.t) Id.Map.t
+(** [spans t] returns the spans of each syntax tree element. *)
+val spans : t -> Span.t Id.Map.t

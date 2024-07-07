@@ -32,5 +32,8 @@ val current : t -> Token.t
 (** [position t] returns the current position of the lexer (skips whitespace and comments). *)
 val position : t -> Position.t
 
+(** [position' t] returns the raw position of the lexer without skipping anything. *)
+val position' : t -> Position.t
+
 (** [advance t] moves the lexer, forward by one token. *)
 val advance : t -> t

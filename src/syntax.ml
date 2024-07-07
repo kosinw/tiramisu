@@ -15,25 +15,21 @@ module Annotated : sig
   (** [id t] reads the annotation id. *)
   val id : 'a t -> Id.t
 
-  (** [value t] reads the value. *)
-  val value : 'a t -> 'a
-
-  (** [generate value] creates a new annotated version with a new id. *)
-  val generate : 'a -> 'a t
+  (** [contents t] reads the value. *)
+  val contents : 'a t -> 'a
 
   include Monad.S with type 'a t := 'a t
 end = struct
   module T = struct
     type 'a t =
       { id : Id.t
-      ; value : 'a
+      ; contents : 'a
       }
     [@@deriving sexp, fields ~getters]
 
-    let return value = { id = Id.create (); value }
-    let bind t ~f = { (f t.value) with id = t.id }
-    let map = `Custom (fun a ~f -> { a with value = f a.value })
-    let generate = return
+    let return contents = { id = Id.create (); contents }
+    let bind t ~f = { (f t.contents) with id = t.id }
+    let map = `Custom (fun a ~f -> { a with contents = f a.contents })
   end
 
   include T
