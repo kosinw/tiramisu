@@ -28,23 +28,30 @@ and expr' =
   (* Infix expressions *)
   | Add of expr * expr
   | Sub of expr * expr
+  | Mul of expr * expr
+  | Div of expr * expr
   | Add_float of expr * expr
   | Sub_float of expr * expr
   | Div_float of expr * expr
   | Mul_float of expr * expr
+  | And of expr * expr
+  | Or of expr * expr
   | Equals of expr * expr
   | Less_than of expr * expr
+  | Greater_than of expr * expr
+  | Less_equals of expr * expr
+  | Greater_equals of expr * expr
+  | Not_equals of expr * expr
   | Sequence of expr * expr
+  | Tuple of expr * expr
+  | Apply of expr * expr
   (* Mixfix expressions *)
   | If of expr * expr * expr
-  | Array_set of expr * expr * expr
   | Let of pattern * expr * expr
   | Let_rec of pattern * pattern list * expr * expr
-  (* Complex expressions *)
-  | Constraint of expr * typexpr
-  | Apply of expr * expr list
-  | Tuple of expr list
   | Array_get of expr * expr
+  | Array_set of expr * expr * expr
+  | Constraint of expr * typexpr
 
 and pattern = pattern' Annotated.t
 
@@ -81,12 +88,20 @@ let rec pp t =
   | Neg_float x -> Sexp.List [ Sexp.Atom "neg_float"; pp x ]
   | Add (x, y) -> Sexp.List [ Sexp.Atom "add"; pp x; pp y ]
   | Sub (x, y) -> Sexp.List [ Sexp.Atom "sub"; pp x; pp y ]
+  | Mul (x, y) -> Sexp.List [ Sexp.Atom "mul"; pp x; pp y ]
+  | Div (x, y) -> Sexp.List [ Sexp.Atom "div"; pp x; pp y ]
   | Add_float (x, y) -> Sexp.List [ Sexp.Atom "add_float"; pp x; pp y ]
   | Sub_float (x, y) -> Sexp.List [ Sexp.Atom "sub_float"; pp x; pp y ]
   | Div_float (x, y) -> Sexp.List [ Sexp.Atom "div_float"; pp x; pp y ]
   | Mul_float (x, y) -> Sexp.List [ Sexp.Atom "mul_float"; pp x; pp y ]
+  | And (x, y) -> Sexp.List [ Sexp.Atom "and"; pp x; pp y ]
+  | Or (x, y) -> Sexp.List [ Sexp.Atom "or"; pp x; pp y ]
   | Equals (x, y) -> Sexp.List [ Sexp.Atom "equals"; pp x; pp y ]
   | Less_than (x, y) -> Sexp.List [ Sexp.Atom "less_than"; pp x; pp y ]
+  | Greater_than (x, y) -> Sexp.List [ Sexp.Atom "greater_than"; pp x; pp y ]
+  | Less_equals (x, y) -> Sexp.List [ Sexp.Atom "less_equals"; pp x; pp y ]
+  | Greater_equals (x, y) -> Sexp.List [ Sexp.Atom "greater_equals"; pp x; pp y ]
+  | Not_equals (x, y) -> Sexp.List [ Sexp.Atom "not_equals"; pp x; pp y ]
   | Sequence (x, y) -> Sexp.List [ Sexp.Atom "sequence"; pp x; pp y ]
   | If (a, b, c) -> Sexp.List [ Sexp.Atom "if"; pp a; pp b; pp c ]
   | Array_set (a, b, c) -> Sexp.List [ Sexp.Atom "array_set"; pp a; pp b; pp c ]
@@ -95,8 +110,8 @@ let rec pp t =
     Sexp.List
       ([ Sexp.Atom "let_rec"; pp_pattern a ] @ List.map ~f:pp_pattern bs @ [ pp c; pp d ])
   | Constraint (a, b) -> Sexp.List [ Sexp.Atom "constraint"; pp a; pp_typexpr b ]
-  | Apply (a, bs) -> Sexp.List ([ Sexp.Atom "apply"; pp a ] @ List.map ~f:pp bs)
-  | Tuple xs -> Sexp.List ([ Sexp.Atom "tuple" ] @ List.map ~f:pp xs)
+  | Apply (a, b) -> Sexp.List [ Sexp.Atom "apply"; pp a; pp b ]
+  | Tuple (a, b) -> Sexp.List [ Sexp.Atom "tuple"; pp a; pp b ]
   | Array_get (a, b) -> Sexp.List [ Sexp.Atom "array_get"; pp a; pp b ]
 
 and pp_pattern t =

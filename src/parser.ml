@@ -43,7 +43,7 @@ module State = struct
         t
   ;;
 
-  let annotate ~f t =
+  let prefix ~f t =
     let fst = Lexer.position t.lexer in
     let syntax, t = f () in
     let snd = Lexer.position' t.lexer in
@@ -52,18 +52,11 @@ module State = struct
     syntax, { t with spans = Map.set t.spans ~key:(Annotated.id syntax) ~data:span }
   ;;
 
-  let apply2 ~left ~right t =
-    let left_id = Annotated.id left in
-    let span = Map.find_exn t.spans left_id in
-    let fst = Span.fst span in
+  let infix ~left ~f t =
+    let fst = left |> Annotated.id |> Map.find_exn t.spans |> Span.fst in
+    let syntax, t = f () in
     let snd = Lexer.position' t.lexer in
     let span = Span.create ~fst ~snd in
-    let syntax =
-      match right with
-      | { Annotated.contents = Syntax.Apply (left', right'); id = _ } ->
-        Syntax.Apply (left, left' :: right')
-      | _ -> Syntax.Apply (left, [ right ])
-    in
     let syntax = Annotated.create syntax in
     syntax, { t with spans = Map.set t.spans ~key:(Annotated.id syntax) ~data:span }
   ;;
@@ -71,7 +64,7 @@ end
 
 type t = Syntax.t * State.t
 
-module Prec = struct
+module Precedence = struct
   type t =
     | Lowest
     | Prefix_let
@@ -80,6 +73,10 @@ module Prec = struct
     | Prefix_if
     | Infix_comma_left
     | Infix_comma_right
+    | Infix_or_right
+    | Infix_or_left
+    | Infix_and_right
+    | Infix_and_left
     | Infix_compare_left
     | Infix_compare_right
     | Infix_add_left
@@ -104,6 +101,8 @@ module Prec = struct
       Some (Infix_add_left, Infix_add_right)
     | Token.Asterisk | Token.Asterisk_dot | Token.Slash | Token.Slash_dot ->
       Some (Infix_mul_left, Infix_mul_right)
+    | Token.Double_pipe -> Some (Infix_or_left, Infix_or_right)
+    | Token.Double_ampersand -> Some (Infix_and_left, Infix_and_right)
     | Token.Equal
     | Token.Less
     | Token.Less_greater
@@ -119,46 +118,92 @@ module Prec = struct
 
   let prefix_exn x = x |> prefix |> Option.value_exn
   let is_infix x = x |> infix |> Option.is_some
-
-  let is_argument = function
-    | Token.Int _
-    | Token.Float _
-    | Token.String _
-    | Token.Char _
-    | Token.Ident _
-    | Token.Left_paren -> true
-    | _ -> false
-  ;;
 end
 
 let fail ~error state = Annotated.create Syntax.Illegal, State.fail ~error state
+
+let starts_argument = function
+  | Token.Int _
+  | Token.Float _
+  | Token.String _
+  | Token.Char _
+  | Token.Ident _
+  | Token.Left_paren
+  | Token.Not -> true
+  | _ -> false
+;;
+
+let lookahead_apply state =
+  let token = State.current state in
+  if Precedence.is_infix token
+  then `Infix
+  else if starts_argument token
+  then `Apply
+  else `Nothing
+;;
 
 let rec expr prec state =
   let left, state = prefix state in
   apply left prec state
 
 and apply left prec state =
-  match State.current state with
-  | tok when Prec.is_infix tok -> infix left prec state
-  | tok when Prec.is_argument tok ->
-    let right, state = expr Prec.Apply state in
-    let left, state = State.apply2 ~left ~right state in
-    apply left prec state
-  | _ -> left, state
+  match lookahead_apply state with
+  | `Infix -> infix left prec state
+  | `Apply ->
+    State.infix state ~left ~f:(fun () ->
+      let right, state = expr Precedence.Apply state in
+      Syntax.Apply (left, right), state)
+  | `Nothing -> left, state
 
 and infix left prec state =
-  ignore left;
-  ignore prec;
-  fail ~error:(Error.of_string "Infix operators not implemented yet") state
+  let op = State.current state in
+  match Precedence.infix op with
+  | Some (left_binding_power, right_binding_power) ->
+    if Precedence.compare left_binding_power prec <= 0
+    then left, state
+    else (
+      let state = State.advance state in
+      let left, state =
+        State.infix state ~left ~f:(fun () ->
+          let right, state = expr right_binding_power state in
+          match op with
+          | Token.Plus -> Syntax.Add (left, right), state
+          | Token.Plus_dot -> Syntax.Add_float (left, right), state
+          | Token.Asterisk -> Syntax.Mul (left, right), state
+          | Token.Asterisk_dot -> Syntax.Mul_float (left, right), state
+          | Token.Minus -> Syntax.Sub (left, right), state
+          | Token.Minus_dot -> Syntax.Sub_float (left, right), state
+          | Token.Slash -> Syntax.Div (left, right), state
+          | Token.Slash_dot -> Syntax.Div_float (left, right), state
+          | Token.Double_ampersand -> Syntax.And (left, right), state
+          | Token.Double_pipe -> Syntax.Or (left, right), state
+          | Token.Equal -> Syntax.Equals (left, right), state
+          | Token.Less -> Syntax.Less_than (left, right), state
+          | Token.Greater -> Syntax.Greater_than (left, right), state
+          | Token.Less_equal -> Syntax.Less_equals (left, right), state
+          | Token.Greater_equal -> Syntax.Greater_equals (left, right), state
+          | Token.Less_greater -> Syntax.Not_equals (left, right), state
+          | Token.Semicolon -> Syntax.Sequence (left, right), state
+          | Token.Comma -> Syntax.Tuple (left, right), state
+          | _ ->
+            ( Syntax.Illegal
+            , State.fail
+                ~error:
+                  (Error.of_string
+                     [%string "Unknown infix operator %{Token.describe op}"])
+                state ))
+      in
+      infix left prec state)
+  | None -> left, state
 
 and prefix state =
   let current = State.current state in
   match current with
   | Token.Left_paren -> with_left_paren state
-  | Token.Not -> with_prefix_expr ~f:(fun x -> Syntax.Not x) ~e:Token.Not state
-  | Token.Minus -> with_prefix_expr ~f:(fun x -> Syntax.Neg x) ~e:Token.Minus state
+  | Token.Not -> with_prefix ~f:(fun x -> Syntax.Not x) ~e:Token.Not state
+  | Token.Minus -> with_prefix ~f:(fun x -> Syntax.Neg x) ~e:Token.Minus state
   | Token.Minus_dot ->
-    with_prefix_expr ~f:(fun x -> Syntax.Neg_float x) ~e:Token.Minus_dot state
+    with_prefix ~f:(fun x -> Syntax.Neg_float x) ~e:Token.Minus_dot state
   | Token.Int x -> with_atom (Syntax.Int x) state
   | Token.Float x -> with_atom (Syntax.Float x) state
   | Token.Char x -> with_atom (Syntax.Char x) state
@@ -175,39 +220,37 @@ and prefix state =
       state
 
 and with_left_paren state =
-  State.annotate state ~f:(fun () ->
+  State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.Left_paren state in
     match State.current state with
     | Token.Right_paren -> Syntax.Unit, State.advance state
     | _ ->
-      let syntax, state = expr Prec.Lowest state in
+      let syntax, state = expr Precedence.Lowest state in
       let state = State.expect ~expected:Token.Right_paren state in
       Annotated.contents syntax, state)
 
 and with_conditional state =
-  State.annotate state ~f:(fun () ->
+  State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.If state in
-    let (), right_bp = Prec.prefix_exn Token.If in
-    let condition, state = expr right_bp state in
+    let (), right_binding_power = Precedence.prefix_exn Token.If in
+    let condition, state = expr right_binding_power state in
     let state = State.expect ~expected:Token.Then state in
-    let consequent, state = expr right_bp state in
+    let consequent, state = expr right_binding_power state in
     let state = State.expect ~expected:Token.Else state in
-    let alternative, state = expr right_bp state in
+    let alternative, state = expr right_binding_power state in
     Syntax.If (condition, consequent, alternative), state)
 
-and with_prefix_expr ~f ~e:expected state =
-  State.annotate state ~f:(fun () ->
+and with_prefix ~f ~e:expected state =
+  State.prefix state ~f:(fun () ->
     let state = State.expect ~expected state in
-    let (), right_bp = Prec.prefix_exn expected in
-    let syntax, state = expr right_bp state in
+    let (), right_binding_power = Precedence.prefix_exn expected in
+    let syntax, state = expr right_binding_power state in
     f syntax, state)
 
-and with_atom syntax state =
-  State.annotate state ~f:(fun () -> syntax, State.advance state)
-;;
+and with_atom syntax state = State.prefix state ~f:(fun () -> syntax, State.advance state)
 
 let parse lexer =
-  let syntax, state = expr Prec.Lowest (State.create ~lexer) in
+  let syntax, state = expr Precedence.Lowest (State.create ~lexer) in
   syntax, State.expect ~expected:Token.Eof state
 ;;
 
@@ -251,19 +294,9 @@ let%expect_test "should parse char expressions" =
   [%expect {| (char "'\\n'") |}]
 ;;
 
-let%expect_test "[verbose]: should parse string expressions" =
-  run_parser ~verbose:true {| (* Here is a comment*)
-"multiple lines with comments
-"|};
-  [%expect
-    {|
-    ((id (id 0)) (contents (String  "\"multiple lines with comments\
-                                   \n\"")))
-    (spans
-     (((id 0)
-       ((fst ((filename -) (line_number 2) (column_number 1)))
-        (snd ((filename -) (line_number 3) (column_number 1)))))))
-    |}]
+let%expect_test "should parse string expressions" =
+  run_parser {| (* Here is a comment*) "a string literal" |};
+  [%expect {| (string "\"a string literal\"") |}]
 ;;
 
 let%expect_test "should parse boolean expressions" =
@@ -273,16 +306,9 @@ let%expect_test "should parse boolean expressions" =
   [%expect {| (bool false) |}]
 ;;
 
-let%expect_test "[verbose]: should parse unit expressions" =
-  run_parser ~verbose:true {|(               )|};
-  [%expect
-    {|
-    ((id (id 0)) (contents Unit))
-    (spans
-     (((id 0)
-       ((fst ((filename -) (line_number 1) (column_number 1)))
-        (snd ((filename -) (line_number 1) (column_number 17)))))))
-    |}]
+let%expect_test "should parse unit expressions" =
+  run_parser {|(               )|};
+  [%expect {| "()" |}]
 ;;
 
 let%expect_test "should parse simple variable expressions" =
@@ -293,30 +319,10 @@ let%expect_test "should parse simple variable expressions" =
 ;;
 
 let%expect_test "should parse parenthesized expressions" =
-  run_parser ~verbose:true {| ( 15 ) |};
-  [%expect
-    {|
-    ((id (id 1)) (contents (Int 15)))
-    (spans
-     (((id 0)
-       ((fst ((filename -) (line_number 1) (column_number 4)))
-        (snd ((filename -) (line_number 1) (column_number 5)))))
-      ((id 1)
-       ((fst ((filename -) (line_number 1) (column_number 2)))
-        (snd ((filename -) (line_number 1) (column_number 7)))))))
-    |}];
-  run_parser ~verbose:true {| (0o534.676) |};
-  [%expect
-    {|
-    ((id (id 1)) (contents (Float 0o534.676)))
-    (spans
-     (((id 0)
-       ((fst ((filename -) (line_number 1) (column_number 3)))
-        (snd ((filename -) (line_number 1) (column_number 11)))))
-      ((id 1)
-       ((fst ((filename -) (line_number 1) (column_number 2)))
-        (snd ((filename -) (line_number 1) (column_number 12)))))))
-    |}]
+  run_parser {| ( 15 ) |};
+  [%expect {| (int 15) |}];
+  run_parser {| (0o534.676) |};
+  [%expect {| (float 0o534.676) |}]
 ;;
 
 let%expect_test "should parse logical not expressions" =
@@ -353,52 +359,51 @@ let%expect_test "should parse more annoying if expressions" =
 let%expect_test "should parse application expressions" =
   run_parser {| map a b c d |};
   [%expect
-    {| (apply (variable map) (variable a) (variable b) (variable c) (variable d)) |}];
-  run_parser ~verbose:true {| (not a) b c d |};
+    {|
+    (apply (variable map)
+     (apply (variable a) (apply (variable b) (apply (variable c) (variable d)))))
+    |}];
+  run_parser {| (not a) b c d |};
   [%expect
     {|
-    ((id (id 8))
-     (contents
-      (Apply ((id (id 2)) (contents (Not ((id (id 0)) (contents (Variable a))))))
-       (((id (id 3)) (contents (Variable b)))
-        ((id (id 4)) (contents (Variable c)))
-        ((id (id 5)) (contents (Variable d)))))))
-    (spans
-     (((id 0)
-       ((fst ((filename -) (line_number 1) (column_number 7)))
-        (snd ((filename -) (line_number 1) (column_number 7)))))
-      ((id 1)
-       ((fst ((filename -) (line_number 1) (column_number 3)))
-        (snd ((filename -) (line_number 1) (column_number 7)))))
-      ((id 2)
-       ((fst ((filename -) (line_number 1) (column_number 2)))
-        (snd ((filename -) (line_number 1) (column_number 8)))))
-      ((id 3)
-       ((fst ((filename -) (line_number 1) (column_number 10)))
-        (snd ((filename -) (line_number 1) (column_number 10)))))
-      ((id 4)
-       ((fst ((filename -) (line_number 1) (column_number 12)))
-        (snd ((filename -) (line_number 1) (column_number 12)))))
-      ((id 5)
-       ((fst ((filename -) (line_number 1) (column_number 14)))
-        (snd ((filename -) (line_number 1) (column_number 14)))))
-      ((id 6)
-       ((fst ((filename -) (line_number 1) (column_number 12)))
-        (snd ((filename -) (line_number 1) (column_number 14)))))
-      ((id 7)
-       ((fst ((filename -) (line_number 1) (column_number 10)))
-        (snd ((filename -) (line_number 1) (column_number 14)))))
-      ((id 8)
-       ((fst ((filename -) (line_number 1) (column_number 2)))
-        (snd ((filename -) (line_number 1) (column_number 14)))))))
-    |}]
+    (apply (not (variable a))
+     (apply (variable b) (apply (variable c) (variable d))))
+    |}];
+  run_parser {| a not b |};
+  [%expect {| (apply (variable a) (not (variable b))) |}]
 ;;
 
 let%expect_test "should parse basic infix expressions" =
-  run_parser {| a + b |};
+  run_parser {| a + b + c + d |};
+  [%expect {| (add (add (add (variable a) (variable b)) (variable c)) (variable d)) |}];
+  run_parser {| a * b + c * d |};
+  [%expect {| (add (mul (variable a) (variable b)) (mul (variable c) (variable d))) |}];
+  run_parser {| a * (b + c) * d |};
+  [%expect {| (mul (mul (variable a) (add (variable b) (variable c))) (variable d)) |}]
+;;
+
+let%expect_test "should parse sequence with right assosciativity" =
+  run_parser {| a; b; c; d; e |};
   [%expect
     {|
-    (errors
-     (("Not implemented yet" ((filename -) (line_number 1) (column_number 4)))))
+    (sequence (variable a)
+     (sequence (variable b)
+      (sequence (variable c) (sequence (variable d) (variable e)))))
+    |}]
+;;
+
+let%expect_test "should parse complex expression 1" =
+  run_parser {|
+    if a <> b || c <= d
+    then max x y
+    else min x y
+  |};
+  [%expect
+    {|
+    (if
+     (or (not_equals (variable a) (variable b))
+      (less_equals (variable c) (variable d)))
+     (apply (variable max) (apply (variable x) (variable y)))
+     (apply (variable min) (apply (variable x) (variable y))))
     |}]
 ;;

@@ -17,3 +17,6 @@ val column_number : t -> int
 
 (** [pred t] returns the previous position to this one. *)
 val pred : t -> t
+
+(** [to_string] returns the string representation of this position. *)
+val to_string : t -> string

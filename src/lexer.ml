@@ -132,6 +132,8 @@ let rec token t =
   | Some '>' -> with_greater (advance_char t)
   | Some '\'' -> with_quote (advance_char t)
   | Some '"' -> with_double_quote [] (advance_char t)
+  | Some '|' -> with_pipe (advance_char t)
+  | Some '&' -> with_ampersand (advance_char t)
   | Some '0' .. '9' -> with_numeric t
   | Some x when is_identifier_start x -> keyword t
   | Some x when is_whitespace x -> token (skip_whitespace t)
@@ -237,6 +239,16 @@ and with_greater t =
   match peek_char t with
   | Some '=' -> Token.Greater_equal, advance_char t
   | _ -> Token.Greater, t
+
+and with_pipe t =
+  match peek_char t with
+  | Some '|' -> Token.Double_pipe, advance_char t
+  | _ -> Token.Illegal (Error.of_string "Unknown start of token: |"), t
+
+and with_ampersand t =
+  match peek_char t with
+  | Some '&' -> Token.Double_ampersand, advance_char t
+  | _ -> Token.Illegal (Error.of_string "Unknown start of token: &"), t
 
 and keyword t =
   match consume_while ~f:is_identifier t with

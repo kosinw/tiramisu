@@ -34,12 +34,14 @@ let parse =
          | "-" -> In_channel.stdin
          | _ -> In_channel.create filename
        in
-       let lexer = Lexer.from_channel ~filename channel in
-       let parser = Parser.parse lexer in
-       let result = Parser.result parser in
-       let spans = Parser.spans parser in
-       print_s [%message (spans : Span.t Id.Map.t)];
-       print_s [%message (result : (Syntax.t, (Error.t * Position.t) list) Result.t)];
+       (match
+          channel |> Lexer.from_channel ~filename |> Parser.parse |> Parser.result
+        with
+        | Ok syntax -> syntax |> Syntax.pp |> print_s
+        | Error errors ->
+          List.iter errors ~f:(fun (error, position) ->
+            let tag = [%string "Error in %{position#Position}"] in
+            print_s [%message tag ~_:(error : Error.t)]));
        In_channel.close channel)
 ;;
 

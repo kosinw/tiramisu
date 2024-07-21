@@ -35,6 +35,8 @@ type t =
   | Dot
   | Colon
   | Semicolon
+  | Double_pipe
+  | Double_ampersand
   (* Keywords *)
   | Not
   | If
@@ -80,6 +82,8 @@ let to_string = function
   | Dot -> "."
   | Colon -> ":"
   | Semicolon -> ";"
+  | Double_pipe -> "||"
+  | Double_ampersand -> "&&"
   | Not -> "not"
   | If -> "if"
   | Then -> "then"
@@ -123,6 +127,8 @@ let describe = function
   | Dot -> "."
   | Colon -> ":"
   | Semicolon -> ";"
+  | Double_pipe -> "||"
+  | Double_ampersand -> "&&"
   | Not -> "not"
   | If -> "if"
   | Then -> "then"
