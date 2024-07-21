@@ -3,18 +3,19 @@ open! Core
 let counter = ref 0
 
 module T = struct
-  type t = int * string [@@deriving compare, hash, equal, sexp]
+  type t = string * int [@@deriving compare, hash, equal, sexp]
+
+  let to_string ((s, i) : t) = [%string {|%{s}/%{i#Int}|}]
+  let compare (_, n1) (_, n2) = Int.compare n1 n2
 end
 
-let to_string (i, s) = [%string {|%{s}/%{i#Int}|}]
-
 let create () =
-  let t = !counter, "id" in
+  let t = "id", !counter in
   counter := !counter + 1;
   t
 ;;
 
-let rename (id, _) name = id, name
+let rename (_, id) name = name, id
 
 module For_test = struct
   let reset () = counter := 0

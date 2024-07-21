@@ -13,7 +13,7 @@ type expr = expr' Annotated.t
 
 and expr' =
   | Illegal
-  (* Simple expressions *)
+  (* Atomic expressions *)
   | Unit
   | Int of string
   | Float of string
@@ -42,7 +42,7 @@ and expr' =
   | Let_rec of pattern * pattern list * expr * expr
   (* Complex expressions *)
   | Constraint of expr * typexpr
-  | Apply of expr list
+  | Apply of expr * expr list
   | Tuple of expr list
   | Array_get of expr * expr
 
@@ -65,3 +65,57 @@ and typexpr' =
 [@@deriving sexp]
 
 type t = expr [@@deriving sexp]
+
+let rec pp t =
+  match Annotated.contents t with
+  | Illegal -> Sexp.Atom "illegal"
+  | Unit -> Sexp.Atom "()"
+  | Int x -> Sexp.List [ Sexp.Atom "int"; Sexp.Atom x ]
+  | Float x -> Sexp.List [ Sexp.Atom "float"; Sexp.Atom x ]
+  | Char x -> Sexp.List [ Sexp.Atom "char"; Sexp.Atom x ]
+  | Bool x -> Sexp.List [ Sexp.Atom "bool"; Sexp.Atom x ]
+  | String x -> Sexp.List [ Sexp.Atom "string"; Sexp.Atom x ]
+  | Variable x -> Sexp.List [ Sexp.Atom "variable"; Sexp.Atom x ]
+  | Not x -> Sexp.List [ Sexp.Atom "not"; pp x ]
+  | Neg x -> Sexp.List [ Sexp.Atom "neg"; pp x ]
+  | Neg_float x -> Sexp.List [ Sexp.Atom "neg_float"; pp x ]
+  | Add (x, y) -> Sexp.List [ Sexp.Atom "add"; pp x; pp y ]
+  | Sub (x, y) -> Sexp.List [ Sexp.Atom "sub"; pp x; pp y ]
+  | Add_float (x, y) -> Sexp.List [ Sexp.Atom "add_float"; pp x; pp y ]
+  | Sub_float (x, y) -> Sexp.List [ Sexp.Atom "sub_float"; pp x; pp y ]
+  | Div_float (x, y) -> Sexp.List [ Sexp.Atom "div_float"; pp x; pp y ]
+  | Mul_float (x, y) -> Sexp.List [ Sexp.Atom "mul_float"; pp x; pp y ]
+  | Equals (x, y) -> Sexp.List [ Sexp.Atom "equals"; pp x; pp y ]
+  | Less_than (x, y) -> Sexp.List [ Sexp.Atom "less_than"; pp x; pp y ]
+  | Sequence (x, y) -> Sexp.List [ Sexp.Atom "sequence"; pp x; pp y ]
+  | If (a, b, c) -> Sexp.List [ Sexp.Atom "if"; pp a; pp b; pp c ]
+  | Array_set (a, b, c) -> Sexp.List [ Sexp.Atom "array_set"; pp a; pp b; pp c ]
+  | Let (a, b, c) -> Sexp.List [ Sexp.Atom "let"; pp_pattern a; pp b; pp c ]
+  | Let_rec (a, bs, c, d) ->
+    Sexp.List
+      ([ Sexp.Atom "let_rec"; pp_pattern a ] @ List.map ~f:pp_pattern bs @ [ pp c; pp d ])
+  | Constraint (a, b) -> Sexp.List [ Sexp.Atom "constraint"; pp a; pp_typexpr b ]
+  | Apply (a, bs) -> Sexp.List ([ Sexp.Atom "apply"; pp a ] @ List.map ~f:pp bs)
+  | Tuple xs -> Sexp.List ([ Sexp.Atom "tuple" ] @ List.map ~f:pp xs)
+  | Array_get (a, b) -> Sexp.List [ Sexp.Atom "array_get"; pp a; pp b ]
+
+and pp_pattern t =
+  match Annotated.contents t with
+  | Illegal_pattern -> Sexp.Atom "illegal_pattern"
+  | Var_pattern x -> Sexp.List [ Sexp.Atom "var_pattern"; Sexp.Atom x ]
+  | Tuple_pattern xs ->
+    Sexp.List ([ Sexp.Atom "tuple_pattern" ] @ List.map xs ~f:pp_pattern)
+  | Constraint_pattern (x, y) ->
+    Sexp.List [ Sexp.Atom "constraint_pattern"; pp_pattern x; pp_typexpr y ]
+
+and pp_typexpr t =
+  match Annotated.contents t with
+  | Illegal_typexpr -> Sexp.Atom "illegal_typexpr"
+  | Var_typexpr x -> Sexp.List [ Sexp.Atom "var_typexpr"; Sexp.Atom x ]
+  | Arrow_typexpr (x, y) ->
+    Sexp.List [ Sexp.Atom "arrow_typexpr"; pp_typexpr x; pp_typexpr y ]
+  | Tuple_typexpr xs ->
+    Sexp.List ([ Sexp.Atom "tuple_typexpr" ] @ List.map xs ~f:pp_typexpr)
+  | Constr_typexpr xs ->
+    Sexp.List ([ Sexp.Atom "constr_typexpr" ] @ List.map xs ~f:pp_typexpr)
+;;

@@ -10,6 +10,7 @@ module T = struct
   let return contents = { id = Id.create (); contents }
   let bind t ~f = { (f t.contents) with id = t.id }
   let map = `Custom (fun a ~f -> { a with contents = f a.contents })
+  let create = return
 end
 
 include T

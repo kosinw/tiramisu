@@ -36,12 +36,10 @@ let parse =
        in
        let lexer = Lexer.from_channel ~filename channel in
        let parser = Parser.parse lexer in
-       let syntax = Parser.syntax parser in
+       let result = Parser.result parser in
        let spans = Parser.spans parser in
-       let errors = Parser.errors parser in
-       print_s [%message (syntax : Syntax.t)];
        print_s [%message (spans : Span.t Id.Map.t)];
-       print_s [%message (errors : (Error.t * Position.t) list)];
+       print_s [%message (result : (Syntax.t, (Error.t * Position.t) list) Result.t)];
        In_channel.close channel)
 ;;
 

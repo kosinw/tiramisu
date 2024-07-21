@@ -48,7 +48,7 @@ type t =
   | False
   (* End of file *)
   | Eof
-[@@deriving sexp_of, compare, equal, hash, variants]
+[@@deriving sexp_of, compare, equal, hash]
 
 let to_string = function
   | Illegal _ -> ""

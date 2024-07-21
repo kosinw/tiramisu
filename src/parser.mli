@@ -6,12 +6,8 @@ type t
     an abstract syntax tree or a list of errors encountered while parsing. *)
 val parse : Lexer.t -> t
 
-(** [syntax t] returns the resulting syntax tree form the parse. If any errors occured,
-    while parsing the syntax tree will be [Syntax.Illegal].*)
-val syntax : t -> Syntax.t
+(** [result t] returns the parsing result which is either a syntax tree or a list of errors. *)
+val result : t -> (Syntax.t, (Error.t * Position.t) list) Result.t
 
-(** [errors t] returns the list of errors encountered during the parse. *)
-val errors : t -> (Error.t * Position.t) list
-
-(** [spans t] returns the spans of each syntax tree element. *)
+(** [spans t] returns the captured spans of syntax tree elements. *)
 val spans : t -> Span.t Id.Map.t
