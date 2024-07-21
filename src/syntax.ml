@@ -48,7 +48,8 @@ and expr' =
   (* Mixfix expressions *)
   | If of expr * expr * expr
   | Let of pattern * expr * expr
-  | Let_rec of pattern * pattern list * expr * expr
+  | Fix of pattern * pattern list * expr
+  | Fun of pattern list * expr
   | Array_get of expr * expr
   | Array_set of expr * expr * expr
   | Constraint of expr * typexpr
@@ -57,8 +58,9 @@ and pattern = pattern' Annotated.t
 
 and pattern' =
   | Illegal_pattern
+  | Unit_pattern
   | Var_pattern of string
-  | Tuple_pattern of pattern list
+  | Tuple_pattern of pattern * pattern
   | Constraint_pattern of pattern * typexpr
 
 and typexpr = typexpr' Annotated.t
@@ -76,7 +78,7 @@ type t = expr [@@deriving sexp]
 let rec pp t =
   match Annotated.contents t with
   | Illegal -> Sexp.Atom "illegal"
-  | Unit -> Sexp.Atom "()"
+  | Unit -> Sexp.Atom "unit"
   | Int x -> Sexp.List [ Sexp.Atom "int"; Sexp.Atom x ]
   | Float x -> Sexp.List [ Sexp.Atom "float"; Sexp.Atom x ]
   | Char x -> Sexp.List [ Sexp.Atom "char"; Sexp.Atom x ]
@@ -106,9 +108,9 @@ let rec pp t =
   | If (a, b, c) -> Sexp.List [ Sexp.Atom "if"; pp a; pp b; pp c ]
   | Array_set (a, b, c) -> Sexp.List [ Sexp.Atom "array_set"; pp a; pp b; pp c ]
   | Let (a, b, c) -> Sexp.List [ Sexp.Atom "let"; pp_pattern a; pp b; pp c ]
-  | Let_rec (a, bs, c, d) ->
-    Sexp.List
-      ([ Sexp.Atom "let_rec"; pp_pattern a ] @ List.map ~f:pp_pattern bs @ [ pp c; pp d ])
+  | Fix (a, bs, c) ->
+    Sexp.List ([ Sexp.Atom "fix"; pp_pattern a ] @ List.map ~f:pp_pattern bs @ [ pp c ])
+  | Fun (xs, y) -> Sexp.List ([ Sexp.Atom "fun" ] @ List.map ~f:pp_pattern xs @ [ pp y ])
   | Constraint (a, b) -> Sexp.List [ Sexp.Atom "constraint"; pp a; pp_typexpr b ]
   | Apply (a, b) -> Sexp.List [ Sexp.Atom "apply"; pp a; pp b ]
   | Tuple (a, b) -> Sexp.List [ Sexp.Atom "tuple"; pp a; pp b ]
@@ -117,9 +119,10 @@ let rec pp t =
 and pp_pattern t =
   match Annotated.contents t with
   | Illegal_pattern -> Sexp.Atom "illegal_pattern"
+  | Unit_pattern -> Sexp.Atom "unit_pattern"
   | Var_pattern x -> Sexp.List [ Sexp.Atom "var_pattern"; Sexp.Atom x ]
-  | Tuple_pattern xs ->
-    Sexp.List ([ Sexp.Atom "tuple_pattern" ] @ List.map xs ~f:pp_pattern)
+  | Tuple_pattern (x, y) ->
+    Sexp.List [ Sexp.Atom "tuple_pattern"; pp_pattern x; pp_pattern y ]
   | Constraint_pattern (x, y) ->
     Sexp.List [ Sexp.Atom "constraint_pattern"; pp_pattern x; pp_typexpr y ]
 

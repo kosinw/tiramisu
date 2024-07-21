@@ -1,5 +1,16 @@
 open! Core
 
+let is_apply = function
+  | Token.Int _
+  | Token.Float _
+  | Token.String _
+  | Token.Char _
+  | Token.Ident _
+  | Token.Left_paren
+  | Token.Not -> true
+  | _ -> false
+;;
+
 module State = struct
   type t =
     { lexer : Lexer.t
@@ -19,11 +30,11 @@ module State = struct
   ;;
 
   (* TODO kosinw: Implement proper token-dependent parser recovery *)
-  let rec recover t =
+  let recover t =
     let token, _, state = lex t in
     match token with
     | Token.Eof -> state
-    | _ -> recover state
+    | _ -> if is_apply token then state else advance state
   ;;
 
   let fail ~error t =
@@ -62,8 +73,6 @@ module State = struct
   ;;
 end
 
-type t = Syntax.t * State.t
-
 module Precedence = struct
   type t =
     | Lowest
@@ -84,9 +93,11 @@ module Precedence = struct
     | Infix_mul_left
     | Infix_mul_right
     | Prefix_minus
-    | Apply
+    | Apply_left
+    | Apply_right
     | Infix_dot_right
     | Infix_dot_left
+    | Highest
   [@@deriving compare, equal]
 
   let prefix = function
@@ -120,26 +131,21 @@ module Precedence = struct
   let is_infix x = x |> infix |> Option.is_some
 end
 
+type t = Syntax.t * State.t
+
 let fail ~error state = Annotated.create Syntax.Illegal, State.fail ~error state
 
-let starts_argument = function
-  | Token.Int _
-  | Token.Float _
-  | Token.String _
-  | Token.Char _
-  | Token.Ident _
-  | Token.Left_paren
-  | Token.Not -> true
-  | _ -> false
+let fail_pattern ~error state =
+  Annotated.create Syntax.Illegal_pattern, State.fail ~error state
 ;;
 
-let lookahead_apply state =
+let infix_or_apply state =
   let token = State.current state in
   if Precedence.is_infix token
   then `Infix
-  else if starts_argument token
+  else if is_apply token
   then `Apply
-  else `Nothing
+  else `Neither
 ;;
 
 let rec expr prec state =
@@ -147,13 +153,19 @@ let rec expr prec state =
   apply left prec state
 
 and apply left prec state =
-  match lookahead_apply state with
+  match infix_or_apply state with
   | `Infix -> infix left prec state
   | `Apply ->
-    State.infix state ~left ~f:(fun () ->
-      let right, state = expr Precedence.Apply state in
-      Syntax.Apply (left, right), state)
-  | `Nothing -> left, state
+    if Precedence.compare Precedence.Apply_left prec <= 0
+    then left, state
+    else (
+      let left, state =
+        State.infix state ~left ~f:(fun () ->
+          let right, state = expr Precedence.Apply_right state in
+          Syntax.Apply (left, right), state)
+      in
+      apply left prec state)
+  | `Neither -> left, state
 
 and infix left prec state =
   let op = State.current state in
@@ -190,7 +202,7 @@ and infix left prec state =
             , State.fail
                 ~error:
                   (Error.of_string
-                     [%string "Unknown infix operator %{Token.describe op}"])
+                     [%string "Unknown expression infix operator %{Token.describe op}"])
                 state ))
       in
       infix left prec state)
@@ -212,6 +224,7 @@ and prefix state =
   | Token.False -> with_atom (Syntax.Bool "false") state
   | Token.Ident x -> with_atom (Syntax.Variable x) state
   | Token.If -> with_conditional state
+  | Token.Let -> with_let state
   | _ ->
     fail
       ~error:
@@ -240,6 +253,17 @@ and with_conditional state =
     let alternative, state = expr right_binding_power state in
     Syntax.If (condition, consequent, alternative), state)
 
+and with_let state =
+  State.prefix state ~f:(fun () ->
+    let state = State.expect ~expected:Token.Let state in
+    let (), right_binding_power = Precedence.prefix_exn Token.Let in
+    let binding, state = pattern Precedence.Highest state in
+    let state = State.expect ~expected:Token.Equal state in
+    let expression, state = expr right_binding_power state in
+    let state = State.expect ~expected:Token.In state in
+    let body, state = expr right_binding_power state in
+    Syntax.Let (binding, expression, body), state)
+
 and with_prefix ~f ~e:expected state =
   State.prefix state ~f:(fun () ->
     let state = State.expect ~expected state in
@@ -247,7 +271,60 @@ and with_prefix ~f ~e:expected state =
     let syntax, state = expr right_binding_power state in
     f syntax, state)
 
-and with_atom syntax state = State.prefix state ~f:(fun () -> syntax, State.advance state)
+and with_atom : 'a. 'a -> State.t -> 'a Annotated.t * State.t =
+  fun syntax state -> State.prefix state ~f:(fun () -> syntax, State.advance state)
+
+and pattern prec state =
+  let left, state = prefix_pattern state in
+  infix_pattern left prec state
+
+and infix_pattern left prec state =
+  ignore prec;
+  let op = State.current state in
+  match Precedence.infix op with
+  | Some (left_binding_power, right_binding_power) ->
+    if Precedence.compare left_binding_power prec <= 0
+    then left, state
+    else (
+      let state = State.advance state in
+      let left, state =
+        State.infix state ~left ~f:(fun () ->
+          let right, state = pattern right_binding_power state in
+          match op with
+          | Token.Comma -> Syntax.Tuple_pattern (left, right), state
+          | _ ->
+            ( Syntax.Illegal_pattern
+            , State.fail
+                ~error:
+                  (Error.of_string
+                     [%string "Unknown pattern infix operator %{Token.describe op}"])
+                state ))
+      in
+      infix_pattern left prec state)
+  | None -> left, state
+
+and prefix_pattern state =
+  let current = State.current state in
+  match current with
+  | Token.Left_paren -> with_left_paren_pattern state
+  | Token.Ident x -> with_atom (Syntax.Var_pattern x) state
+  | _ ->
+    fail_pattern
+      ~error:
+        (Error.of_string
+           [%string "Expected start of pattern, instead saw %{Token.describe current}"])
+      state
+
+and with_left_paren_pattern state =
+  State.prefix state ~f:(fun () ->
+    let state = State.expect ~expected:Token.Left_paren state in
+    match State.current state with
+    | Token.Right_paren -> Syntax.Unit_pattern, State.advance state
+    | _ ->
+      let syntax, state = pattern Precedence.Lowest state in
+      let state = State.expect ~expected:Token.Right_paren state in
+      Annotated.contents syntax, state)
+;;
 
 let parse lexer =
   let syntax, state = expr Precedence.Lowest (State.create ~lexer) in
@@ -272,7 +349,10 @@ let run_parser ?(verbose = false) string =
      if verbose
      then print_s [%message "" ~_:(syntax : Syntax.t)]
      else print_s (Syntax.pp syntax)
-   | Error errors -> print_s [%message "" (errors : (Error.t * Position.t) list)]);
+   | Error errors ->
+     List.iter errors ~f:(fun (error, position) ->
+       let tag = [%string "Error in %{position#Position}"] in
+       print_s [%message tag ~_:(error : Error.t)]));
   if verbose
   then (
     let spans = spans parse_result in
@@ -308,7 +388,7 @@ let%expect_test "should parse boolean expressions" =
 
 let%expect_test "should parse unit expressions" =
   run_parser {|(               )|};
-  [%expect {| "()" |}]
+  [%expect {| unit |}]
 ;;
 
 let%expect_test "should parse simple variable expressions" =
@@ -360,14 +440,16 @@ let%expect_test "should parse application expressions" =
   run_parser {| map a b c d |};
   [%expect
     {|
-    (apply (variable map)
-     (apply (variable a) (apply (variable b) (apply (variable c) (variable d)))))
+    (apply
+     (apply (apply (apply (variable map) (variable a)) (variable b))
+      (variable c))
+     (variable d))
     |}];
   run_parser {| (not a) b c d |};
   [%expect
     {|
-    (apply (not (variable a))
-     (apply (variable b) (apply (variable c) (variable d))))
+    (apply (apply (apply (not (variable a)) (variable b)) (variable c))
+     (variable d))
     |}];
   run_parser {| a not b |};
   [%expect {| (apply (variable a) (not (variable b))) |}]
@@ -403,7 +485,37 @@ let%expect_test "should parse complex expression 1" =
     (if
      (or (not_equals (variable a) (variable b))
       (less_equals (variable c) (variable d)))
-     (apply (variable max) (apply (variable x) (variable y)))
-     (apply (variable min) (apply (variable x) (variable y))))
+     (apply (apply (variable max) (variable x)) (variable y))
+     (apply (apply (variable min) (variable x)) (variable y)))
+    |}]
+;;
+
+let%expect_test "should not parse syntax errors" =
+  run_parser {||};
+  [%expect
+    {|
+    ("Error in file -, line 1, col 1"
+     "Expected start of expression, instead saw end of file")
+    |}];
+  run_parser {|a++b|};
+  [%expect
+    {|
+    ("Error in file -, line 1, col 3"
+     "Expected start of expression, instead saw +")
+    |}]
+;;
+
+let%expect_test "should parse let expressions" =
+  run_parser {| let x= 3. in x +. y |};
+  [%expect {| (let (var_pattern x) (float 3.) (add_float (variable x) (variable y))) |}];
+  run_parser {| let x = 5 * 15 + 23 - 22 in add_all x y z (5 - 4) (8. /. 2.)|};
+  [%expect {|
+    (let (var_pattern x) (sub (add (mul (int 5) (int 15)) (int 23)) (int 22))
+     (apply
+      (apply
+       (apply (apply (apply (variable add_all) (variable x)) (variable y))
+        (variable z))
+       (sub (int 5) (int 4)))
+      (div_float (float 8.) (float 2.))))
     |}]
 ;;
