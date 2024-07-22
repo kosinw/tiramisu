@@ -1,15 +1,22 @@
 open! Core
 
-let is_apply = function
-  | Token.Int _
-  | Token.Float _
-  | Token.String _
-  | Token.Char _
-  | Token.Ident _
-  | Token.Left_paren
-  | Token.Not -> true
-  | _ -> false
-;;
+module Util = struct
+  let is_apply = function
+    | Token.Int _
+    | Token.Float _
+    | Token.String _
+    | Token.Char _
+    | Token.Ident _
+    | Token.Left_paren
+    | Token.Not -> true
+    | _ -> false
+  ;;
+
+  let is_pattern = function
+    | Token.Left_paren | Token.Ident _ -> true
+    | _ -> false
+  ;;
+end
 
 module State = struct
   type t =
@@ -34,7 +41,7 @@ module State = struct
     let token, _, state = lex t in
     match token with
     | Token.Eof -> state
-    | _ -> if is_apply token then state else advance state
+    | _ -> if Util.is_apply token then state else advance state
   ;;
 
   let fail ~error t =
@@ -143,7 +150,7 @@ let infix_or_apply state =
   let token = State.current state in
   if Precedence.is_infix token
   then `Infix
-  else if is_apply token
+  else if Util.is_apply token
   then `Apply
   else `Neither
 ;;
@@ -202,7 +209,7 @@ and infix left prec state =
             , State.fail
                 ~error:
                   (Error.of_string
-                     [%string "Unknown expression infix operator %{Token.describe op}"])
+                     [%string "Unknown infix operator %{Token.describe op}"])
                 state ))
       in
       infix left prec state)
@@ -257,12 +264,27 @@ and with_let state =
   State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.Let state in
     let (), right_binding_power = Precedence.prefix_exn Token.Let in
-    let binding, state = pattern Precedence.Highest state in
-    let state = State.expect ~expected:Token.Equal state in
-    let expression, state = expr right_binding_power state in
-    let state = State.expect ~expected:Token.In state in
-    let body, state = expr right_binding_power state in
-    Syntax.Let (binding, expression, body), state)
+    match State.current state with
+    | Token.Rec ->
+      let state = State.advance state in
+      let binding, state = pattern Precedence.Highest state in
+      let arguments, state = pattern_list Precedence.Highest state in
+      let state = State.expect ~expected:Token.Equal state in
+      let expression, state =
+        State.prefix state ~f:(fun () ->
+          let expression, state = expr right_binding_power state in
+          Syntax.Fix (binding, arguments, expression), state)
+      in
+      let state = State.expect ~expected:Token.In state in
+      let body, state = expr right_binding_power state in
+      Syntax.Let (binding, expression, body), state
+    | _ ->
+      let binding, state = pattern Precedence.Highest state in
+      let state = State.expect ~expected:Token.Equal state in
+      let expression, state = expr right_binding_power state in
+      let state = State.expect ~expected:Token.In state in
+      let body, state = expr right_binding_power state in
+      Syntax.Let (binding, expression, body), state)
 
 and with_prefix ~f ~e:expected state =
   State.prefix state ~f:(fun () ->
@@ -277,6 +299,17 @@ and with_atom : 'a. 'a -> State.t -> 'a Annotated.t * State.t =
 and pattern prec state =
   let left, state = prefix_pattern state in
   infix_pattern left prec state
+
+and pattern_list prec state =
+  let left, state = pattern prec state in
+  let rec pattern_list' left prec state =
+    if Util.is_pattern (State.current state)
+    then (
+      let right, state = pattern prec state in
+      pattern_list' (right :: left) prec state)
+    else List.rev left, state
+  in
+  pattern_list' [ left ] prec state
 
 and infix_pattern left prec state =
   ignore prec;
@@ -297,7 +330,7 @@ and infix_pattern left prec state =
             , State.fail
                 ~error:
                   (Error.of_string
-                     [%string "Unknown pattern infix operator %{Token.describe op}"])
+                     [%string "Unknown infix operator %{Token.describe op}"])
                 state ))
       in
       infix_pattern left prec state)
@@ -509,7 +542,8 @@ let%expect_test "should parse let expressions" =
   run_parser {| let x= 3. in x +. y |};
   [%expect {| (let (var_pattern x) (float 3.) (add_float (variable x) (variable y))) |}];
   run_parser {| let x = 5 * 15 + 23 - 22 in add_all x y z (5 - 4) (8. /. 2.)|};
-  [%expect {|
+  [%expect
+    {|
     (let (var_pattern x) (sub (add (mul (int 5) (int 15)) (int 23)) (int 22))
      (apply
       (apply
@@ -517,5 +551,26 @@ let%expect_test "should parse let expressions" =
         (variable z))
        (sub (int 5) (int 4)))
       (div_float (float 8.) (float 2.))))
+    |}]
+;;
+
+let%expect_test "should parse function definitions" =
+  run_parser {| let rec fac n = if n < 1 then 0 else n * fac (n - 1) in fac 6 |};
+  [%expect
+    {|
+    (let (var_pattern fac)
+     (fix (var_pattern fac) (var_pattern n)
+      (if (less_than (variable n) (int 1)) (int 0)
+       (mul (variable n) (apply (variable fac) (sub (variable n) (int 1))))))
+     (apply (variable fac) (int 6)))
+    |}];
+  run_parser {| let rec max (x, _) (y, _) = if x > y then x else y in max -1 22 |};
+  [%expect
+    {|
+    (let (var_pattern max)
+     (fix (var_pattern max) (tuple_pattern (var_pattern x) (var_pattern _))
+      (tuple_pattern (var_pattern y) (var_pattern _))
+      (if (greater_than (variable x) (variable y)) (variable x) (variable y)))
+     (sub (variable max) (apply (int 1) (int 22))))
     |}]
 ;;
