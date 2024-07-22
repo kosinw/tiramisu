@@ -1,23 +1,5 @@
 open! Core
 
-module Util = struct
-  let is_apply = function
-    | Token.Int _
-    | Token.Float _
-    | Token.String _
-    | Token.Char _
-    | Token.Ident _
-    | Token.Left_paren
-    | Token.Not -> true
-    | _ -> false
-  ;;
-
-  let is_pattern = function
-    | Token.Left_paren | Token.Ident _ -> true
-    | _ -> false
-  ;;
-end
-
 module State = struct
   type t =
     { lexer : Lexer.t
@@ -31,17 +13,10 @@ module State = struct
   let errors t = t.errors
   let spans t = t.spans
 
-  let lex t =
-    let token, position, lexer = Lexer.lex t.lexer in
-    token, position, { t with lexer }
-  ;;
-
-  (* TODO kosinw: Implement proper token-dependent parser recovery *)
-  let recover t =
-    let token, _, state = lex t in
-    match token with
-    | Token.Eof -> state
-    | _ -> if Util.is_apply token then state else advance state
+  let rec recover t =
+    match current t with
+    | Token.Eof -> t
+    | _ -> recover (advance t)
   ;;
 
   let fail ~error t =
@@ -102,13 +77,13 @@ module Precedence = struct
     | Prefix_minus
     | Apply_left
     | Apply_right
-    | Infix_dot_right
     | Infix_dot_left
+    | Infix_dot_right
     | Highest
   [@@deriving compare, equal]
 
   let prefix = function
-    | Token.Let -> Some ((), Prefix_let)
+    | Token.Fun | Token.Let -> Some ((), Prefix_let)
     | Token.If -> Some ((), Prefix_if)
     | Token.Minus_dot | Token.Minus | Token.Not -> Some ((), Prefix_minus)
     | _ -> None
@@ -131,38 +106,31 @@ module Precedence = struct
     | Token.Comma -> Some (Infix_comma_left, Infix_comma_right)
     | Token.Semicolon -> Some (Infix_semicolon_left, Infix_semicolon_right)
     | Token.Dot -> Some (Infix_dot_left, Infix_dot_right)
+    | Token.Int _
+    | Token.True
+    | Token.False
+    | Token.Float _
+    | Token.String _
+    | Token.Char _
+    | Token.Ident _
+    | Token.Left_paren
+    | Token.Not -> Some (Apply_left, Apply_right)
     | _ -> None
   ;;
 
   let prefix_exn x = x |> prefix |> Option.value_exn
-  let is_infix x = x |> infix |> Option.is_some
 end
 
 type t = Syntax.t * State.t
 
-let fail ~error state = Annotated.create Syntax.Illegal, State.fail ~error state
-
-let fail_pattern ~error state =
-  Annotated.create Syntax.Illegal_pattern, State.fail ~error state
-;;
-
-let infix_or_apply state =
-  let token = State.current state in
-  if Precedence.is_infix token
-  then `Infix
-  else if Util.is_apply token
-  then `Apply
-  else `Neither
-;;
-
 let rec expr prec state =
   let left, state = prefix state in
-  apply left prec state
+  infix left prec state
 
-and apply left prec state =
-  match infix_or_apply state with
-  | `Infix -> infix left prec state
-  | `Apply ->
+and infix left prec state =
+  let op = State.current state in
+  match Precedence.infix op with
+  | Some (Precedence.Apply_left, Precedence.Apply_right) ->
     if Precedence.compare Precedence.Apply_left prec <= 0
     then left, state
     else (
@@ -171,12 +139,7 @@ and apply left prec state =
           let right, state = expr Precedence.Apply_right state in
           Syntax.Apply (left, right), state)
       in
-      apply left prec state)
-  | `Neither -> left, state
-
-and infix left prec state =
-  let op = State.current state in
-  match Precedence.infix op with
+      infix left prec state)
   | Some (left_binding_power, right_binding_power) ->
     if Precedence.compare left_binding_power prec <= 0
     then left, state
@@ -204,16 +167,27 @@ and infix left prec state =
           | Token.Less_greater -> Syntax.Not_equals (left, right), state
           | Token.Semicolon -> Syntax.Sequence (left, right), state
           | Token.Comma -> Syntax.Tuple (left, right), state
+          | Token.Dot -> with_dot left right state
           | _ ->
             ( Syntax.Illegal
             , State.fail
                 ~error:
                   (Error.of_string
-                     [%string "Unknown infix operator %{Token.describe op}"])
+                     [%string "Unknown infix operator: %{Token.describe op}"])
                 state ))
       in
       infix left prec state)
   | None -> left, state
+
+and with_dot left right state =
+  match Annotated.contents left, Annotated.contents right with
+  | Syntax.Variable x, Syntax.Variable y -> Syntax.Variable (x ^ "." ^ y), state
+  | _ ->
+    ( Syntax.Illegal
+    , State.fail
+        ~error:
+          (Error.of_string "Dot infix operator can only be used between two variables")
+        state )
 
 and prefix state =
   let current = State.current state in
@@ -232,12 +206,16 @@ and prefix state =
   | Token.Ident x -> with_atom (Syntax.Variable x) state
   | Token.If -> with_conditional state
   | Token.Let -> with_let state
+  | Token.Fun -> with_fun state
   | _ ->
-    fail
-      ~error:
-        (Error.of_string
-           [%string "Expected start of expression, instead saw %{Token.describe current}"])
-      state
+    State.prefix state ~f:(fun () ->
+      ( Syntax.Illegal
+      , State.fail
+          ~error:
+            (Error.of_string
+               [%string
+                 "Expected start of expression, instead saw %{Token.describe current}"])
+          state ))
 
 and with_left_paren state =
   State.prefix state ~f:(fun () ->
@@ -280,11 +258,41 @@ and with_let state =
       Syntax.Let (binding, expression, body), state
     | _ ->
       let binding, state = pattern Precedence.Highest state in
+      let arguments, state = pattern_list Precedence.Highest state in
       let state = State.expect ~expected:Token.Equal state in
+      (match arguments with
+       | [] ->
+         let expression, state = expr right_binding_power state in
+         let state = State.expect ~expected:Token.In state in
+         let body, state = expr right_binding_power state in
+         Syntax.Let (binding, expression, body), state
+       | _ ->
+         let expression, state =
+           State.prefix state ~f:(fun () ->
+             let expression, state = expr right_binding_power state in
+             Syntax.Fun (arguments, expression), state)
+         in
+         let state = State.expect ~expected:Token.In state in
+         let body, state = expr right_binding_power state in
+         Syntax.Let (binding, expression, body), state))
+
+and with_fun state =
+  State.prefix state ~f:(fun () ->
+    let state = State.expect ~expected:Token.Fun state in
+    let (), right_binding_power = Precedence.prefix_exn Token.Fun in
+    let arguments, state = pattern_list Precedence.Highest state in
+    match arguments with
+    | [] ->
+      ( Syntax.Illegal
+      , State.fail
+          state
+          ~error:
+            (Error.of_string
+               [%string "Anonymous functions require at least one formal paramter"]) )
+    | _ ->
+      let state = State.expect ~expected:Token.Minus_greater state in
       let expression, state = expr right_binding_power state in
-      let state = State.expect ~expected:Token.In state in
-      let body, state = expr right_binding_power state in
-      Syntax.Let (binding, expression, body), state)
+      Syntax.Fun (arguments, expression), state)
 
 and with_prefix ~f ~e:expected state =
   State.prefix state ~f:(fun () ->
@@ -301,15 +309,14 @@ and pattern prec state =
   infix_pattern left prec state
 
 and pattern_list prec state =
-  let left, state = pattern prec state in
   let rec pattern_list' left prec state =
-    if Util.is_pattern (State.current state)
-    then (
+    match State.current state with
+    | Token.Ident _ | Token.Left_paren ->
       let right, state = pattern prec state in
-      pattern_list' (right :: left) prec state)
-    else List.rev left, state
+      pattern_list' (right :: left) prec state
+    | _ -> List.rev left, state
   in
-  pattern_list' [ left ] prec state
+  pattern_list' [] prec state
 
 and infix_pattern left prec state =
   ignore prec;
@@ -342,11 +349,14 @@ and prefix_pattern state =
   | Token.Left_paren -> with_left_paren_pattern state
   | Token.Ident x -> with_atom (Syntax.Var_pattern x) state
   | _ ->
-    fail_pattern
-      ~error:
-        (Error.of_string
-           [%string "Expected start of pattern, instead saw %{Token.describe current}"])
-      state
+    State.prefix state ~f:(fun () ->
+      ( Syntax.Illegal_pattern
+      , State.fail
+          ~error:
+            (Error.of_string
+               [%string
+                 "Expected start of pattern, instead saw %{Token.describe current}"])
+          state ))
 
 and with_left_paren_pattern state =
   State.prefix state ~f:(fun () ->
@@ -564,13 +574,37 @@ let%expect_test "should parse function definitions" =
        (mul (variable n) (apply (variable fac) (sub (variable n) (int 1))))))
      (apply (variable fac) (int 6)))
     |}];
-  run_parser {| let rec max (x, _) (y, _) = if x > y then x else y in max -1 22 |};
+  run_parser {| let max x y = if x >= y then x else y in max -1 22 |};
   [%expect
     {|
     (let (var_pattern max)
-     (fix (var_pattern max) (tuple_pattern (var_pattern x) (var_pattern _))
-      (tuple_pattern (var_pattern y) (var_pattern _))
-      (if (greater_than (variable x) (variable y)) (variable x) (variable y)))
+     (fun (var_pattern x) (var_pattern y)
+      (if (greater_equals (variable x) (variable y)) (variable x) (variable y)))
      (sub (variable max) (apply (int 1) (int 22))))
     |}]
+;;
+
+let%expect_test "should parse anonymous function definitions" =
+  run_parser {| (fun x -> not x) false |};
+  [%expect {| (apply (fun (var_pattern x) (not (variable x))) (bool false)) |}];
+  run_parser {| let curry f = fun x y -> f (x, y) in curry (fun (x, y) -> x * y) 3 4 |};
+  [%expect
+    {|
+    (let (var_pattern curry)
+     (fun (var_pattern f)
+      (fun (var_pattern x) (var_pattern y)
+       (apply (variable f) (tuple (variable x) (variable y)))))
+     (apply
+      (apply
+       (apply (variable curry)
+        (fun (tuple_pattern (var_pattern x) (var_pattern y))
+         (mul (variable x) (variable y))))
+       (int 3))
+      (int 4)))
+    |}]
+;;
+
+let%expect_test "should parse dot expressions" =
+  run_parser {| Array.create 0 10 |};
+  [%expect {| (apply (apply (variable Array.create) (int 0)) (int 10)) |}]
 ;;
