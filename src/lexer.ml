@@ -119,10 +119,10 @@ let rec token t =
   match peek_char t with
   | Some ')' -> Token.Right_paren, advance_char t
   | Some '=' -> Token.Equal, advance_char t
-  | Some '.' -> Token.Dot, advance_char t
   | Some ':' -> Token.Colon, advance_char t
   | Some ',' -> Token.Comma, advance_char t
   | Some ';' -> Token.Semicolon, advance_char t
+  | Some '.' -> with_dot (advance_char t)
   | Some '(' -> with_left_paren (advance_char t)
   | Some '+' -> with_plus (advance_char t)
   | Some '-' -> with_minus (advance_char t)
@@ -213,6 +213,11 @@ and with_plus t =
   | Some '.' -> Token.Plus_dot, advance_char t
   | _ -> Token.Plus, t
 
+and with_dot t =
+  match peek_char t with
+  | Some '(' -> Token.Dot_paren, advance_char t
+  | _ -> Token.Dot, t
+
 and with_minus t =
   match peek_char t with
   | Some '.' -> Token.Minus_dot, advance_char t
@@ -233,6 +238,7 @@ and with_less t =
   match peek_char t with
   | Some '=' -> Token.Less_equal, advance_char t
   | Some '>' -> Token.Less_greater, advance_char t
+  | Some '-' -> Token.Less_minus, advance_char t
   | _ -> Token.Less, t
 
 and with_greater t =

@@ -14,5 +14,6 @@ let pred { filename; line_number; column_number } =
 ;;
 
 let to_string { filename; line_number; column_number } =
-  [%string "file %{filename}, line %{line_number#Int}, col %{column_number#Int}"]
+  [%string
+    "File \"%{filename}\", line %{line_number#Int}, character %{column_number#Int}"]
 ;;

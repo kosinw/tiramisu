@@ -40,8 +40,7 @@ let parse =
         | Ok syntax -> syntax |> Syntax.pp |> print_s
         | Error errors ->
           List.iter errors ~f:(fun (error, position) ->
-            let tag = [%string "Error in %{position#Position}"] in
-            print_s [%message tag ~_:(error : Error.t)]));
+            print_s [%message (Position.to_string position) ~_:(error : Error.t)]));
        In_channel.close channel)
 ;;
 

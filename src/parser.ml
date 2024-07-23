@@ -62,6 +62,8 @@ module Precedence = struct
     | Infix_semicolon_right
     | Infix_semicolon_left
     | Prefix_if
+    | Infix_arrow_right
+    | Infix_arrow_left
     | Infix_comma_left
     | Infix_comma_right
     | Infix_or_right
@@ -90,6 +92,7 @@ module Precedence = struct
   ;;
 
   let infix = function
+    | Token.Less_minus -> Some (Infix_arrow_left, Infix_arrow_right)
     | Token.Plus | Token.Minus | Token.Plus_dot | Token.Minus_dot ->
       Some (Infix_add_left, Infix_add_right)
     | Token.Asterisk | Token.Asterisk_dot | Token.Slash | Token.Slash_dot ->
@@ -100,12 +103,11 @@ module Precedence = struct
     | Token.Less
     | Token.Less_greater
     | Token.Less_equal
-    | Token.Less_minus
     | Token.Greater
     | Token.Greater_equal -> Some (Infix_compare_left, Infix_compare_right)
     | Token.Comma -> Some (Infix_comma_left, Infix_comma_right)
     | Token.Semicolon -> Some (Infix_semicolon_left, Infix_semicolon_right)
-    | Token.Dot -> Some (Infix_dot_left, Infix_dot_right)
+    | Token.Dot_paren | Token.Dot -> Some (Infix_dot_left, Infix_dot_right)
     | Token.Int _
     | Token.True
     | Token.False
@@ -118,7 +120,7 @@ module Precedence = struct
     | _ -> None
   ;;
 
-  let prefix_exn x = x |> prefix |> Option.value_exn
+  let prefix_exn x = Option.value_exn (prefix x)
 end
 
 type t = Syntax.t * State.t
@@ -129,6 +131,12 @@ let rec expr prec state =
 
 and infix left prec state =
   let op = State.current state in
+  let error_state =
+    State.fail
+      ~error:
+        (Error.of_string [%string "Did not expect infix operator %{Token.describe op}"])
+      state
+  in
   match Precedence.infix op with
   | Some (Precedence.Apply_left, Precedence.Apply_right) ->
     if Precedence.compare Precedence.Apply_left prec <= 0
@@ -167,19 +175,23 @@ and infix left prec state =
           | Token.Less_greater -> Syntax.Not_equals (left, right), state
           | Token.Semicolon -> Syntax.Sequence (left, right), state
           | Token.Comma -> Syntax.Tuple (left, right), state
-          | Token.Dot -> with_dot left right state
-          | _ ->
-            ( Syntax.Illegal
-            , State.fail
-                ~error:
-                  (Error.of_string
-                     [%string "Unknown infix operator: %{Token.describe op}"])
-                state ))
+          | Token.Dot -> dot_expr left right state
+          | Token.Dot_paren -> array_expr left right state
+          | _ -> Syntax.Illegal, error_state)
       in
       infix left prec state)
   | None -> left, state
 
-and with_dot left right state =
+and array_expr left right state =
+  let state = State.expect state ~expected:Token.Right_paren in
+  match State.current state with
+  | Token.Less_minus ->
+    let state = State.advance state in
+    let after, state = expr Precedence.Infix_arrow_right state in
+    Syntax.Array_set (left, right, after), state
+  | _ -> Syntax.Array_get (left, right), state
+
+and dot_expr left right state =
   match Annotated.contents left, Annotated.contents right with
   | Syntax.Variable x, Syntax.Variable y -> Syntax.Variable (x ^ "." ^ y), state
   | _ ->
@@ -192,21 +204,21 @@ and with_dot left right state =
 and prefix state =
   let current = State.current state in
   match current with
-  | Token.Left_paren -> with_left_paren state
+  | Token.Left_paren -> paren_expr state
   | Token.Not -> with_prefix ~f:(fun x -> Syntax.Not x) ~e:Token.Not state
   | Token.Minus -> with_prefix ~f:(fun x -> Syntax.Neg x) ~e:Token.Minus state
   | Token.Minus_dot ->
     with_prefix ~f:(fun x -> Syntax.Neg_float x) ~e:Token.Minus_dot state
-  | Token.Int x -> with_atom (Syntax.Int x) state
-  | Token.Float x -> with_atom (Syntax.Float x) state
-  | Token.Char x -> with_atom (Syntax.Char x) state
-  | Token.String x -> with_atom (Syntax.String x) state
-  | Token.True -> with_atom (Syntax.Bool "true") state
-  | Token.False -> with_atom (Syntax.Bool "false") state
-  | Token.Ident x -> with_atom (Syntax.Variable x) state
-  | Token.If -> with_conditional state
-  | Token.Let -> with_let state
-  | Token.Fun -> with_fun state
+  | Token.Int x -> atom (Syntax.Int x) state
+  | Token.Float x -> atom (Syntax.Float x) state
+  | Token.Char x -> atom (Syntax.Char x) state
+  | Token.String x -> atom (Syntax.String x) state
+  | Token.True -> atom (Syntax.Bool "true") state
+  | Token.False -> atom (Syntax.Bool "false") state
+  | Token.Ident x -> atom (Syntax.Variable x) state
+  | Token.If -> if_expr state
+  | Token.Let -> let_expr state
+  | Token.Fun -> fun_expr state
   | _ ->
     State.prefix state ~f:(fun () ->
       ( Syntax.Illegal
@@ -217,7 +229,7 @@ and prefix state =
                  "Expected start of expression, instead saw %{Token.describe current}"])
           state ))
 
-and with_left_paren state =
+and paren_expr state =
   State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.Left_paren state in
     match State.current state with
@@ -227,7 +239,7 @@ and with_left_paren state =
       let state = State.expect ~expected:Token.Right_paren state in
       Annotated.contents syntax, state)
 
-and with_conditional state =
+and if_expr state =
   State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.If state in
     let (), right_binding_power = Precedence.prefix_exn Token.If in
@@ -238,7 +250,7 @@ and with_conditional state =
     let alternative, state = expr right_binding_power state in
     Syntax.If (condition, consequent, alternative), state)
 
-and with_let state =
+and let_expr state =
   State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.Let state in
     let (), right_binding_power = Precedence.prefix_exn Token.Let in
@@ -276,7 +288,7 @@ and with_let state =
          let body, state = expr right_binding_power state in
          Syntax.Let (binding, expression, body), state))
 
-and with_fun state =
+and fun_expr state =
   State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.Fun state in
     let (), right_binding_power = Precedence.prefix_exn Token.Fun in
@@ -301,7 +313,7 @@ and with_prefix ~f ~e:expected state =
     let syntax, state = expr right_binding_power state in
     f syntax, state)
 
-and with_atom : 'a. 'a -> State.t -> 'a Annotated.t * State.t =
+and atom : 'a. 'a -> State.t -> 'a Annotated.t * State.t =
   fun syntax state -> State.prefix state ~f:(fun () -> syntax, State.advance state)
 
 and pattern prec state =
@@ -319,7 +331,6 @@ and pattern_list prec state =
   pattern_list' [] prec state
 
 and infix_pattern left prec state =
-  ignore prec;
   let op = State.current state in
   match Precedence.infix op with
   | Some (left_binding_power, right_binding_power) ->
@@ -346,8 +357,8 @@ and infix_pattern left prec state =
 and prefix_pattern state =
   let current = State.current state in
   match current with
-  | Token.Left_paren -> with_left_paren_pattern state
-  | Token.Ident x -> with_atom (Syntax.Var_pattern x) state
+  | Token.Left_paren -> paren_expr_pattern state
+  | Token.Ident x -> atom (Syntax.Var_pattern x) state
   | _ ->
     State.prefix state ~f:(fun () ->
       ( Syntax.Illegal_pattern
@@ -358,7 +369,7 @@ and prefix_pattern state =
                  "Expected start of pattern, instead saw %{Token.describe current}"])
           state ))
 
-and with_left_paren_pattern state =
+and paren_expr_pattern state =
   State.prefix state ~f:(fun () ->
     let state = State.expect ~expected:Token.Left_paren state in
     match State.current state with
@@ -394,8 +405,7 @@ let run_parser ?(verbose = false) string =
      else print_s (Syntax.pp syntax)
    | Error errors ->
      List.iter errors ~f:(fun (error, position) ->
-       let tag = [%string "Error in %{position#Position}"] in
-       print_s [%message tag ~_:(error : Error.t)]));
+       print_s [%message (Position.to_string position) ~_:(error : Error.t)]));
   if verbose
   then (
     let spans = spans parse_result in
@@ -537,13 +547,13 @@ let%expect_test "should not parse syntax errors" =
   run_parser {||};
   [%expect
     {|
-    ("Error in file -, line 1, col 1"
+    ("File \"-\", line 1, character 1"
      "Expected start of expression, instead saw end of file")
     |}];
   run_parser {|a++b|};
   [%expect
     {|
-    ("Error in file -, line 1, col 3"
+    ("File \"-\", line 1, character 3"
      "Expected start of expression, instead saw +")
     |}]
 ;;
@@ -607,4 +617,16 @@ let%expect_test "should parse anonymous function definitions" =
 let%expect_test "should parse dot expressions" =
   run_parser {| Array.create 0 10 |};
   [%expect {| (apply (apply (variable Array.create) (int 0)) (int 10)) |}]
+;;
+
+let%expect_test "should parse array expressions" =
+  run_parser {| a.(x) |};
+  [%expect {| (array_get (variable a) (variable x)) |}];
+  run_parser {| a.(x) <- if true then 1 else 2; a.(x) |};
+  [%expect
+    {|
+    (sequence
+     (array_set (variable a) (variable x) (if (bool true) (int 1) (int 2)))
+     (array_get (variable a) (variable x)))
+    |}]
 ;;
